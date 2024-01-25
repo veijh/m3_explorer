@@ -18,8 +18,8 @@ using namespace std;
 octomap::OcTree* ocmap;
 typedef struct quad_mesh
 {
-  octomap::point3d center;
   double size;
+  octomap::point3d center;
   octomap::point3d normal;
 }quad_mesh;
 
@@ -30,10 +30,10 @@ void octomap_cb(const octomap_msgs::Octomap::ConstPtr& msg)
   ocmap = dynamic_cast<octomap::OcTree*>(msgToMap(*msg));
 
   double i = 0.0, j = 0.0, k = 0.0;
-  ocmap->getMetricMax(i, j, k);
-  cout << "max: " << i << ", " << j << ", " << k << endl;
-  ocmap->getMetricMin(i, j, k);
-  cout << "min: " << i << ", " << j << ", " << k << endl;
+  // ocmap->getMetricMax(i, j, k);
+  // cout << "max: " << i << ", " << j << ", " << k << endl;
+  // ocmap->getMetricMin(i, j, k);
+  // cout << "min: " << i << ", " << j << ", " << k << endl;
   ocmap->getMetricSize(i, j, k);
   cout << "size: " << i << ", " << j << ", " << k << endl << endl;
 
@@ -74,14 +74,13 @@ void octomap_cb(const octomap_msgs::Octomap::ConstPtr& msg)
   //   }
   // }
 
-
 }
 
 int main(int argc, char** argv){
   ros::init(argc, argv, "m3_explorer");
   ros::NodeHandle nh("");
-  ros::Subscriber octomap_sub = nh.subscribe<octomap_msgs::Octomap>("/uav0/octomap_full", 1, octomap_cb);
-  double resolution = 0.05, sensor_range = 5.0;
+  ros::Subscriber octomap_sub = nh.subscribe<octomap_msgs::Octomap>("/uav0/octomap_binary", 1, octomap_cb);
+  double resolution = 0.1, sensor_range = 5.0;
   tf2_ros::Buffer tf_buffer;
   tf2_ros::TransformListener tf_listener(tf_buffer);
   ros::Duration(1.0).sleep();  // 等待tf2变换树准备好
@@ -96,7 +95,7 @@ int main(int argc, char** argv){
   marker.pose.orientation.y = 0.0;
   marker.pose.orientation.z = 0.0;
   std_msgs::ColorRGBA color;
-  color.r = 1.0; color.g = 0.0; color.b = 0.0; color.a = 0.5;
+  color.r = 1.0; color.g = 0.0; color.b = 0.0; color.a = 1.0;
   marker.color = color;
   marker.type = visualization_msgs::Marker::CUBE;
 
@@ -125,62 +124,11 @@ int main(int argc, char** argv){
         ROS_ERROR("Failed to transform point: %s", ex.what());
     }
 
-    vector<geometry_msgs::PointStamped> source_point_vec;
-    vector<Eigen::Vector3d> target_point_vec;
-    geometry_msgs::PointStamped x_axis(cam_o_in_cam);
-    x_axis.point.x = 1.0;
-    x_axis.point.y = 0.0;
-    x_axis.point.z = 0.0;
-    geometry_msgs::PointStamped y_axis(cam_o_in_cam);
-    y_axis.point.x = 0.0;
-    y_axis.point.y = 1.0;
-    y_axis.point.z = 0.0;
-    geometry_msgs::PointStamped z_axis(cam_o_in_cam);
-    z_axis.point.x = 0.0;
-    z_axis.point.y = 0.0;
-    z_axis.point.z = 1.0;
-    source_point_vec.push_back(x_axis);
-    source_point_vec.push_back(y_axis);
-    source_point_vec.push_back(z_axis);
-
-    for(int i = 0; i < source_point_vec.size(); i++){
-      try {
-        geometry_msgs::PointStamped target_point;
-        tf_buffer.transform(source_point_vec[i], target_point, "map");
-        target_point.point.x -= cam_o_in_map.point.x;
-        target_point.point.y -= cam_o_in_map.point.y;
-        target_point.point.z -= cam_o_in_map.point.z;
-        Eigen::Vector3d target;
-        target << target_point.point.x, target_point.point.y, target_point.point.z;
-        target_point_vec.push_back(target);
-      }
-      catch (tf2::TransformException& ex) {
-          ROS_ERROR("Failed to transform point: %s", ex.what());
-      }
-    }
-
     visualization_msgs::MarkerArray markerArray;
-    int voxel_num = sensor_range/resolution;
 
     ros::Time current_time = ros::Time::now();
-    // check whether the point is frontier
-    // if(ocmap == nullptr){
-    //   cout << "[ERROR] the ptr of octomap is null" << endl;
-    // }
-    // else{
-    //   octomap::point3d pmin(0,0,0);
-    //   octomap::point3d pmax(1,1,1);
-    //   ocmap->getUnknownLeafCenters(unk_points, pmin, pmax);
-    //   int id = 0;
-    //   for(auto it = unk_points.begin(); it != unk_points.end(); it++){
-    //     marker.id = id++;
-    //     marker.pose.position.x = it->x();
-    //     marker.pose.position.y = it->y();
-    //     marker.pose.position.z = it->z();
-    //     markerArray.markers.push_back(marker);
-    //   }
-    // }
 
+    // check whether the point is frontier
     vector<quad_mesh> frontiers;
     octomap::point3d_collection nbr_dir = {{1.0, 0.0, 0.0}, {-1.0, 0.0, 0.0},
                                     {0.0, 1.0, 0.0}, {0.0, -1.0, 0.0},
@@ -188,13 +136,15 @@ int main(int argc, char** argv){
     octomap::point3d_collection offset = {{0.0, 1.0, 1.0}, {0.0, -1.0, 1.0}, {0.0, -1.0, -1.0}, {0.0, 1.0, -1.0},
                                       {1.0, 0.0, 1.0}, {-1.0, 0.0, 1.0}, {-1.0, 0.0, -1.0}, {1.0, 0.0, -1.0},
                                       {1.0, 1.0, 0.0}, {-1.0, 1.0, 0.0}, {-1.0, -1.0, 0.0}, {1.0, -1.0, 0.0}};
-    octomap::point3d min(-5, -5, 0.1);
-    octomap::point3d max(5, 5, 3);
+
+    octomap::point3d check_bbx_min(cam_o_in_map.point.x - sensor_range, cam_o_in_map.point.y - sensor_range, max(0.0, cam_o_in_map.point.z - sensor_range));
+    octomap::point3d check_bbx_max(cam_o_in_map.point.x + sensor_range, cam_o_in_map.point.y + sensor_range, min(3.0, cam_o_in_map.point.z + sensor_range));
+
     if(ocmap == nullptr){
       cout << "[ERROR] the ptr of octomap is null" << endl;
     }
     else{
-      for(octomap::OcTree::leaf_bbx_iterator it = ocmap->begin_leafs_bbx(min, max),
+      for(octomap::OcTree::leaf_bbx_iterator it = ocmap->begin_leafs_bbx(check_bbx_min, check_bbx_max),
        end=ocmap->end_leafs_bbx(); it!= end; ++it)
       {
         double size = it.getSize();
@@ -202,7 +152,8 @@ int main(int argc, char** argv){
         octomap::point3d center = it.getCoordinate();
         
         // no need to check obstacles' neighbors
-        if(it->getValue() > log(0.8/0.2)){
+        // no need to check the interior of obstacle
+        if(it->getValue() > log(0.6/0.4)){
           continue;
         }
 
@@ -221,7 +172,7 @@ int main(int argc, char** argv){
             if(nbr_node->hasChildren()){
               // bfs search unknown voxel
               queue<pair<octomap::point3d, int>> bfs_queue;
-              octomap::point3d surface = center + nbr_dir[i] * ((size / 2.0) + ocmap->getResolution());
+              octomap::point3d surface = center + nbr_dir[i] * (size / 2.0 + ocmap->getResolution() / 2.0);
               bfs_queue.push(make_pair(surface, depth));
 
               while(!bfs_queue.empty()){
