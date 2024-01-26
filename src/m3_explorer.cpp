@@ -73,7 +73,7 @@ int main(int argc, char** argv){
   ros::init(argc, argv, "m3_explorer");
   ros::NodeHandle nh("");
   ros::Subscriber octomap_sub = nh.subscribe<octomap_msgs::Octomap>("/uav0/octomap_full", 1, octomap_cb);
-  double resolution = 0.2, sensor_range = 5.0;
+  double resolution = 0.1, sensor_range = 5.0;
   tf2_ros::Buffer tf_buffer;
   tf2_ros::TransformListener tf_listener(tf_buffer);
   ros::Duration(1.0).sleep();  // 等待tf2变换树准备好
@@ -96,7 +96,6 @@ int main(int argc, char** argv){
   color.r = 1.0; color.g = 0.0; color.b = 0.0; color.a = 1.0;
   marker.color = color;
   marker.type = visualization_msgs::Marker::CUBE;
-  ros::spin();
 
   while(ros::ok()){
     //// detect frontier: 
@@ -207,7 +206,7 @@ int main(int argc, char** argv){
       }
     }
     ros::Duration elapsed_time = ros::Time::now() - current_time;
-    ROS_INFO("Elapsed Time: %.2f seconds", elapsed_time.toSec());
+    cout << "Elapsed Time: " << elapsed_time.toSec()*1000.0 << " ms" << endl;
 
 
     cout << "frontier voxel num is : " << frontiers.size() << endl;
