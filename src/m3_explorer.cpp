@@ -3,6 +3,7 @@
 #include <octomap_msgs/Octomap.h>
 #include <octomap_msgs/conversions.h>
 #include <vector>
+#include <set>
 #include <queue>
 #include <Eigen/Dense>
 #include <tf2_ros/transform_listener.h>
@@ -16,12 +17,35 @@
 
 using namespace std;
 octomap::OcTree* ocmap;
-typedef struct quad_mesh
+struct quad_mesh
 {
   double size;
   octomap::point3d center;
   octomap::point3d normal;
-}quad_mesh;
+  bool operator < (const quad_mesh& item) const{
+    if(size != item.size){
+      return size < item.size;
+    }
+    else if(center.x() != item.center.x()){
+      return center.x() < item.center.x();
+    }
+    else if(center.y() != item.center.y()){
+      return center.y() < item.center.y();
+    }
+    else if(center.z() != item.center.z()){
+      return center.z() < item.center.z();
+    }
+    else if(normal.x() != item.normal.x()){
+      return normal.x() < item.normal.x();
+    }
+    else if(normal.y() != item.normal.y()){
+      return normal.y() < item.normal.y();
+    }
+    else{
+      return normal.z() < item.normal.z();
+    }
+  }
+};
 
 void octomap_cb(const octomap_msgs::Octomap::ConstPtr& msg)
 {
@@ -98,13 +122,12 @@ int main(int argc, char** argv){
   color.r = 1.0; color.g = 0.0; color.b = 0.0; color.a = 1.0;
   marker.color = color;
   marker.type = visualization_msgs::Marker::CUBE;
+  set<quad_mesh> frontiers;
 
   while(ros::ok()){
     //// detect frontier: 
     //// input = octomap; current pose; FOV; max range; region bbx
     //// output = a vector containing all frontier voxels
-
-    // check old frontier
 
     // add new frontier
     // lookup transform of 3 axises
@@ -124,12 +147,33 @@ int main(int argc, char** argv){
         ROS_ERROR("Failed to transform point: %s", ex.what());
     }
 
+        // check old frontier
+    if(!frontiers.empty() && ocmap != nullptr){
+      auto it = frontiers.begin();
+      while(it != frontiers.end()){
+        if(abs(it->center.x() - cam_o_in_map.point.x) > sensor_range){
+          it++;
+          continue;
+        }
+        if(abs(it->center.y() - cam_o_in_map.point.y) > sensor_range){
+          it++;
+          continue;
+        }
+
+        if(ocmap->search(it->center) != nullptr){
+          frontiers.erase(it++);
+        }
+        else{
+          it++;
+        }
+      }
+    }
+
     visualization_msgs::MarkerArray markerArray;
 
     ros::Time current_time = ros::Time::now();
 
     // check whether the point is frontier
-    vector<quad_mesh> frontiers;
     octomap::point3d_collection nbr_dir = {{1.0, 0.0, 0.0}, {-1.0, 0.0, 0.0},
                                     {0.0, 1.0, 0.0}, {0.0, -1.0, 0.0},
                                     {0.0, 0.0, 1.0}, {0.0, 0.0, -1.0}};
@@ -137,8 +181,8 @@ int main(int argc, char** argv){
                                       {1.0, 0.0, 1.0}, {-1.0, 0.0, 1.0}, {-1.0, 0.0, -1.0}, {1.0, 0.0, -1.0},
                                       {1.0, 1.0, 0.0}, {-1.0, 1.0, 0.0}, {-1.0, -1.0, 0.0}, {1.0, -1.0, 0.0}};
 
-    octomap::point3d check_bbx_min(cam_o_in_map.point.x - sensor_range, cam_o_in_map.point.y - sensor_range, max(0.0, cam_o_in_map.point.z - sensor_range));
-    octomap::point3d check_bbx_max(cam_o_in_map.point.x + sensor_range, cam_o_in_map.point.y + sensor_range, min(3.0, cam_o_in_map.point.z + sensor_range));
+    octomap::point3d check_bbx_min(cam_o_in_map.point.x - sensor_range, cam_o_in_map.point.y - sensor_range, max(1.0, cam_o_in_map.point.z - sensor_range));
+    octomap::point3d check_bbx_max(cam_o_in_map.point.x + sensor_range, cam_o_in_map.point.y + sensor_range, min(2.0, cam_o_in_map.point.z + sensor_range));
 
     if(ocmap == nullptr){
       cout << "[ERROR] the ptr of octomap is null" << endl;
@@ -166,7 +210,7 @@ int main(int argc, char** argv){
             mesh.center = center + nbr_dir[i] * (size / 2.0);
             mesh.normal = nbr_dir[i];
             mesh.size = size;
-            frontiers.push_back(mesh);
+            frontiers.insert(mesh);
           }
           else{
             if(nbr_node->hasChildren()){
@@ -196,7 +240,7 @@ int main(int argc, char** argv){
                   mesh.center = point;
                   mesh.normal = nbr_dir[i];
                   mesh.size = point_size;
-                  frontiers.push_back(mesh);
+                  frontiers.insert(mesh);
                 }
               }
             }
@@ -205,29 +249,33 @@ int main(int argc, char** argv){
       }
     }
 
-    for(int i = 0; i < frontiers.size(); i++){
-      marker.id = i;
-      marker.pose.position.x = frontiers[i].center.x();
-      marker.pose.position.y = frontiers[i].center.y();
-      marker.pose.position.z = frontiers[i].center.z();
-      geometry_msgs::Vector3 scale;
-      if(frontiers[i].normal.x() > 0.5 || frontiers[i].normal.x() < -0.5){
-        scale.x = resolution;
-        scale.y = frontiers[i].size;
-        scale.z = frontiers[i].size;
+    if(!frontiers.empty()){
+      auto it = frontiers.begin();
+      for(int i = 0; i < frontiers.size(); i++){
+        marker.id = i;
+        marker.pose.position.x = it->center.x();
+        marker.pose.position.y = it->center.y();
+        marker.pose.position.z = it->center.z();
+        geometry_msgs::Vector3 scale;
+        if(it->normal.x() > 0.5 || it->normal.x() < -0.5){
+          scale.x = resolution;
+          scale.y = it->size;
+          scale.z = it->size;
+        }
+        if(it->normal.y() > 0.5 || it->normal.y() < -0.5){
+          scale.x = it->size;
+          scale.y = resolution;
+          scale.z = it->size;
+        }
+        if(it->normal.z() > 0.5 || it->normal.z() < -0.5){
+          scale.x = it->size;
+          scale.y = it->size;
+          scale.z = resolution;
+        }
+        marker.scale = scale;
+        markerArray.markers.push_back(marker);
+        it++;
       }
-      if(frontiers[i].normal.y() > 0.5 || frontiers[i].normal.y() < -0.5){
-        scale.x = frontiers[i].size;
-        scale.y = resolution;
-        scale.z = frontiers[i].size;
-      }
-      if(frontiers[i].normal.z() > 0.5 || frontiers[i].normal.z() < -0.5){
-        scale.x = frontiers[i].size;
-        scale.y = frontiers[i].size;
-        scale.z = resolution;
-      }
-      marker.scale = scale;
-      markerArray.markers.push_back(marker);
     }
     
     ros::Duration elapsed_time = ros::Time::now() - current_time;
@@ -241,6 +289,7 @@ int main(int argc, char** argv){
     //// frontier clustering
     //// input = the vector containing all frontier voxels
     //// output = a vector containing all frontier clusters
+
 
     // generate view point
     ros::spinOnce();
