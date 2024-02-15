@@ -3,6 +3,7 @@
 #include <octomap_msgs/Octomap.h>
 #include <octomap_msgs/conversions.h>
 #include <vector>
+#include <unordered_map>
 #include <set>
 #include <queue>
 #include <Eigen/Dense>
@@ -14,38 +15,10 @@
 #include <sys/time.h>
 #include <utility>
 #include <cmath>
+#include "m3_explorer/frontier_detector.h"
 
 using namespace std;
 octomap::OcTree* ocmap;
-struct quad_mesh
-{
-  double size;
-  octomap::point3d center;
-  octomap::point3d normal;
-  bool operator < (const quad_mesh& item) const{
-    if(size != item.size){
-      return size < item.size;
-    }
-    else if(center.x() != item.center.x()){
-      return center.x() < item.center.x();
-    }
-    else if(center.y() != item.center.y()){
-      return center.y() < item.center.y();
-    }
-    else if(center.z() != item.center.z()){
-      return center.z() < item.center.z();
-    }
-    else if(normal.x() != item.normal.x()){
-      return normal.x() < item.normal.x();
-    }
-    else if(normal.y() != item.normal.y()){
-      return normal.y() < item.normal.y();
-    }
-    else{
-      return normal.z() < item.normal.z();
-    }
-  }
-};
 
 void octomap_cb(const octomap_msgs::Octomap::ConstPtr& msg)
 {
@@ -121,15 +94,11 @@ int main(int argc, char** argv){
   std_msgs::ColorRGBA color;
   color.r = 1.0; color.g = 0.0; color.b = 0.0; color.a = 1.0;
   marker.color = color;
-  marker.type = visualization_msgs::Marker::CUBE;
-  set<quad_mesh> frontiers;
+  marker.type = visualization_msgs::Marker::CUBE_LIST;
+  set<QuadMesh> frontiers;
 
   while(ros::ok()){
-    //// detect frontier: 
-    //// input = octomap; current pose; FOV; max range; region bbx
-    //// output = a vector containing all frontier voxels
 
-    // add new frontier
     // lookup transform of 3 axises
     geometry_msgs::PointStamped cam_o_in_cam;
     cam_o_in_cam.header.frame_id = "uav0_camera_depth_frame";
@@ -147,140 +116,68 @@ int main(int argc, char** argv){
         ROS_ERROR("Failed to transform point: %s", ex.what());
     }
 
-        // check old frontier
-    if(!frontiers.empty() && ocmap != nullptr){
-      auto it = frontiers.begin();
-      while(it != frontiers.end()){
-        if(abs(it->center.x() - cam_o_in_map.point.x) > sensor_range){
-          it++;
-          continue;
-        }
-        if(abs(it->center.y() - cam_o_in_map.point.y) > sensor_range){
-          it++;
-          continue;
-        }
-
-        if(ocmap->search(it->center) != nullptr){
-          frontiers.erase(it++);
-        }
-        else{
-          it++;
-        }
-      }
-    }
+    //// detect frontier: 
+    //// input = octomap; current pose; FOV; max range; region bbx
+    //// output = a set containing all frontier voxels
 
     visualization_msgs::MarkerArray markerArray;
 
     ros::Time current_time = ros::Time::now();
 
-    // check whether the point is frontier
-    octomap::point3d_collection nbr_dir = {{1.0, 0.0, 0.0}, {-1.0, 0.0, 0.0},
-                                    {0.0, 1.0, 0.0}, {0.0, -1.0, 0.0},
-                                    {0.0, 0.0, 1.0}, {0.0, 0.0, -1.0}};
-    octomap::point3d_collection offset = {{0.0, 1.0, 1.0}, {0.0, -1.0, 1.0}, {0.0, -1.0, -1.0}, {0.0, 1.0, -1.0},
-                                      {1.0, 0.0, 1.0}, {-1.0, 0.0, 1.0}, {-1.0, 0.0, -1.0}, {1.0, 0.0, -1.0},
-                                      {1.0, 1.0, 0.0}, {-1.0, 1.0, 0.0}, {-1.0, -1.0, 0.0}, {1.0, -1.0, 0.0}};
+    frontier_detect(frontiers, ocmap, cam_o_in_map, sensor_range);
 
-    octomap::point3d check_bbx_min(cam_o_in_map.point.x - sensor_range, cam_o_in_map.point.y - sensor_range, max(1.0, cam_o_in_map.point.z - sensor_range));
-    octomap::point3d check_bbx_max(cam_o_in_map.point.x + sensor_range, cam_o_in_map.point.y + sensor_range, min(2.0, cam_o_in_map.point.z + sensor_range));
-
-    if(ocmap == nullptr){
-      cout << "[ERROR] the ptr of octomap is null" << endl;
-    }
-    else{
-      for(octomap::OcTree::leaf_bbx_iterator it = ocmap->begin_leafs_bbx(check_bbx_min, check_bbx_max),
-       end=ocmap->end_leafs_bbx(); it!= end; ++it)
-      {
-        double size = it.getSize();
-        int depth = it.getDepth();
-        octomap::point3d center = it.getCoordinate();
-        
-        // no need to check obstacles' neighbors
-        // no need to check the interior of obstacle
-        if(it->getValue() > log(0.6/0.4)){
-          continue;
-        }
-
-        // check 6 faces
-        for(int i = 0; i < nbr_dir.size(); i++){
-          octomap::point3d nbr_point = center + nbr_dir[i] * size;
-          octomap::OcTreeNode* nbr_node = ocmap->search(nbr_point, depth);
-          quad_mesh mesh;
-          if(nbr_node == nullptr){
-            mesh.center = center + nbr_dir[i] * (size / 2.0);
-            mesh.normal = nbr_dir[i];
-            mesh.size = size;
-            frontiers.insert(mesh);
-          }
-          else{
-            if(nbr_node->hasChildren()){
-              // bfs search unknown voxel
-              queue<pair<octomap::point3d, int>> bfs_queue;
-              octomap::point3d surface = center + nbr_dir[i] * (size / 2.0 + ocmap->getResolution() / 2.0);
-              bfs_queue.push(make_pair(surface, depth));
-
-              while(!bfs_queue.empty()){
-                octomap::point3d point = bfs_queue.front().first;
-                int point_depth = bfs_queue.front().second;
-                double point_size = size * pow(0.5, point_depth - depth);
-                bfs_queue.pop();
-
-                octomap::OcTreeNode* point_node = ocmap->search(point, point_depth);
-                if(point_node != nullptr){
-                    if(point_node->hasChildren()){
-                      // add 4 points into queue
-                      for(int offset_i = 0; offset_i < 4; offset_i++){
-                        double child_size = point_size / 2.0;
-                        octomap::point3d child = point + offset[offset_i + 4 * (i/2)] * (child_size / 2.0);
-                        bfs_queue.push(make_pair(child, point_depth+1));
-                      }
-                    }
-                }
-                else{
-                  mesh.center = point;
-                  mesh.normal = nbr_dir[i];
-                  mesh.size = point_size;
-                  frontiers.insert(mesh);
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-
+    vector<vector<visualization_msgs::Marker>> all_marker(3);
     if(!frontiers.empty()){
+      int total_type = 0;
+      vector<unordered_map<double, int>> marker_type(3);
       auto it = frontiers.begin();
       for(int i = 0; i < frontiers.size(); i++){
-        marker.id = i;
-        marker.pose.position.x = it->center.x();
-        marker.pose.position.y = it->center.y();
-        marker.pose.position.z = it->center.z();
         geometry_msgs::Vector3 scale;
+        int flag = -1;
         if(it->normal.x() > 0.5 || it->normal.x() < -0.5){
+          flag = 0;
           scale.x = resolution;
           scale.y = it->size;
           scale.z = it->size;
         }
         if(it->normal.y() > 0.5 || it->normal.y() < -0.5){
+          flag = 1;
           scale.x = it->size;
           scale.y = resolution;
           scale.z = it->size;
         }
         if(it->normal.z() > 0.5 || it->normal.z() < -0.5){
+          flag = 2;
           scale.x = it->size;
           scale.y = it->size;
           scale.z = resolution;
         }
-        marker.scale = scale;
-        markerArray.markers.push_back(marker);
+
+        if(flag > -1){
+          if(marker_type[flag].find(it->size) == marker_type[flag].end()){
+            marker_type[flag][it->size] = marker_type[flag].size();
+            all_marker[flag].resize(marker_type[flag].size(), marker);
+            all_marker[flag][marker_type[flag][it->size]].id = marker_type[flag][it->size] + flag * 100;
+            all_marker[flag][marker_type[flag][it->size]].scale = scale;
+          }
+          geometry_msgs::Point point_pose;
+          point_pose.x = it->center.x();
+          point_pose.y = it->center.y();
+          point_pose.z = it->center.z();
+          all_marker[flag][marker_type[flag][it->size]].points.push_back(point_pose);
+        }
         it++;
+      }
+    }
+    
+    for(auto& i:all_marker){
+      for(auto& j:i){
+        markerArray.markers.push_back(j);
       }
     }
     
     ros::Duration elapsed_time = ros::Time::now() - current_time;
     cout << "Elapsed Time: " << elapsed_time.toSec()*1000.0 << " ms" << endl;
-
 
     cout << "frontier voxel num is : " << frontiers.size() << endl;
 
