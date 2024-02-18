@@ -15,6 +15,7 @@
 #include <sys/time.h>
 #include <utility>
 #include <cmath>
+#include <random>
 #include "m3_explorer/frontier_detector.h"
 
 using namespace std;
@@ -83,7 +84,10 @@ int main(int argc, char** argv){
   ros::Duration(1.0).sleep();  // 等待tf2变换树准备好
   ros::Rate rate(5);
 
+  // frontier voxels display
   ros::Publisher markerArrayPub = nh.advertise<visualization_msgs::MarkerArray>("visualization_marker_array", 10);
+  // frontier cluster display
+  ros::Publisher cluster_pub = nh.advertise<visualization_msgs::Marker>("cluster_pub", 10);
 
   visualization_msgs::Marker marker;
   marker.header.frame_id = "map";
@@ -169,7 +173,7 @@ int main(int argc, char** argv){
         it++;
       }
     }
-    
+
     for(auto& i:all_marker){
       for(auto& j:i){
         markerArray.markers.push_back(j);
@@ -184,10 +188,107 @@ int main(int argc, char** argv){
     markerArrayPub.publish(markerArray);
 
     //// frontier clustering
-    //// input = the vector containing all frontier voxels
-    //// output = a vector containing all frontier clusters
+    //// input = the set containing all frontier voxels
+    //// output = a set containing all frontier clusters
+
+    if(!frontiers.empty())
+    {
+      current_time = ros::Time::now();
+      int cluster_num = 10;
 
 
+      struct timeval t1{},t2{};
+      double timeuse;
+      // convert set to matrix
+      Eigen::Matrix3Xf frontier_mat(3, frontiers.size());
+      auto it = frontiers.begin();
+      for(int i = 0; i < frontiers.size(); i++){
+        frontier_mat.col(i) << it->center.x(), it->center.y(), it->center.z();
+        it++;
+      }
+      
+      int min = 0, max = frontiers.size()-1;
+      random_device seed;//硬件生成随机数种子
+      ranlux48 engine(seed());//利用种子生成随机数引擎
+      uniform_int_distribution<int> distrib(min, max);//设置随机数范围，并为均匀分布
+      
+      // initial clusters' center
+      vector<int> initial_idx;
+      while(initial_idx.size() < cluster_num){
+        int random = distrib(engine);
+        if(find(initial_idx.begin(), initial_idx.end(), random) == initial_idx.end()){
+          initial_idx.push_back(random);
+        }
+      }
+      Eigen::Matrix3Xf cluster_center(3, cluster_num);
+      for(int i = 0; i < initial_idx.size(); i++){
+        cluster_center.col(i) = frontier_mat.col(initial_idx[i]);
+      }
+
+      Eigen::MatrixXf distance_to_center(cluster_num, frontiers.size());
+      for(int iter_count = 0; iter_count < 1000; iter_count++){
+        // cout << "[LOG] cal dis.";
+        // gettimeofday(&t1,nullptr);
+
+        // calculate the distance from each point to all centers
+        for(int i = 0; i < cluster_num; i++){
+            distance_to_center.row(i) = (cluster_center.col(i).replicate(1, frontier_mat.cols()) - frontier_mat).colwise().norm();
+        }
+        // gettimeofday(&t2,nullptr);
+        // timeuse = (t2.tv_sec - t1.tv_sec) + (double)(t2.tv_usec - t1.tv_usec)/1000000.0;
+        // cout<<" using time = " << timeuse << " s" << endl;  //(in sec)
+
+        // cout << "[LOG] cal new center.";
+        // gettimeofday(&t1,nullptr);
+        vector<int> cluster_count(cluster_num, 0);
+        Eigen::Matrix3Xf new_center(3, cluster_num);
+        new_center.setZero();
+        for(int i = 0; i < distance_to_center.cols(); i++){
+          int idx = 0;
+          distance_to_center.col(i).minCoeff(&idx);
+          cluster_count[idx]++;
+          new_center.col(idx) += frontier_mat.col(i);
+        }
+
+        for(int i = 0; i < new_center.cols(); i++){
+          new_center.col(i) /= cluster_count[i];
+        }
+        // gettimeofday(&t2,nullptr);
+        // timeuse = (t2.tv_sec - t1.tv_sec) + (double)(t2.tv_usec - t1.tv_usec)/1000000.0;
+        // cout<<" using time = " << timeuse << " s" << endl;  //(in sec)
+
+        // cout << "[LOG] whether or not to break.";
+        // gettimeofday(&t1,nullptr);
+        float delta = (new_center - cluster_center).colwise().norm().maxCoeff();
+        if(delta < 1e-3){
+          cout << "break after iteration " << iter_count << endl;
+          break;
+        }
+        else{
+          cluster_center = new_center;
+        }
+        // gettimeofday(&t2,nullptr);
+        // timeuse = (t2.tv_sec - t1.tv_sec) + (double)(t2.tv_usec - t1.tv_usec)/1000000.0;
+        // cout<<" using time = " << timeuse << " s" << endl;  //(in sec)
+      }
+      
+      visualization_msgs::Marker cluster(marker);
+      cluster.type = visualization_msgs::Marker::SPHERE_LIST;
+      cluster.color.a = 1; cluster.color.r = 0; cluster.color.g = 1; cluster.color.b = 0;
+      cluster.scale.x = 0.5; cluster.scale.y = 0.5; cluster.scale.z = 0.5;
+      for(int i = 0; i < cluster_center.cols(); i++){
+        geometry_msgs::Point point;
+        point.x = cluster_center.col(i).x();
+        point.y = cluster_center.col(i).y();
+        point.z = cluster_center.col(i).z();
+        cluster.points.push_back(point);
+      }
+      cluster_pub.publish(cluster);
+
+      ros::Duration elapsed_time = ros::Time::now() - current_time;
+      cout << "Elapsed Time: " << elapsed_time.toSec()*1000.0 << " ms" << endl;
+    }
+    
     // generate view point
     ros::spinOnce();
     rate.sleep();
