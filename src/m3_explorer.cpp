@@ -8,6 +8,7 @@
 #include <queue>
 #include <Eigen/Dense>
 #include <tf2_ros/transform_listener.h>
+#include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/PointStamped.h>
 #include <geometry_msgs/TransformStamped.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -88,6 +89,11 @@ int main(int argc, char** argv){
   ros::Publisher markerArrayPub = nh.advertise<visualization_msgs::MarkerArray>("visualization_marker_array", 10);
   // frontier cluster display
   ros::Publisher cluster_pub = nh.advertise<visualization_msgs::Marker>("cluster_pub", 10);
+  // ego planner input: target pose
+  ros::Publisher goal_pub = nh.advertise<geometry_msgs::PoseStamped>("/move_base_simple/goal", 10);
+  bool goal_exec = false;
+  int id_exec = 0;
+  vector<geometry_msgs::PoseStamped> goal_list;
 
   visualization_msgs::Marker marker;
   marker.header.frame_id = "map";
@@ -191,7 +197,7 @@ int main(int argc, char** argv){
     //// input = the set containing all frontier voxels
     //// output = a set containing all frontier clusters
 
-    if(!frontiers.empty())
+    if(!frontiers.empty() && goal_exec == false)
     {
       current_time = ros::Time::now();
       int cluster_num = 10;
@@ -272,6 +278,10 @@ int main(int argc, char** argv){
         // cout<<" using time = " << timeuse << " s" << endl;  //(in sec)
       }
       
+      if(!goal_list.empty()){
+        goal_list.clear();
+      }
+
       visualization_msgs::Marker cluster(marker);
       cluster.type = visualization_msgs::Marker::SPHERE_LIST;
       cluster.color.a = 1; cluster.color.r = 0; cluster.color.g = 1; cluster.color.b = 0;
@@ -282,11 +292,41 @@ int main(int argc, char** argv){
         point.y = cluster_center.col(i).y();
         point.z = cluster_center.col(i).z();
         cluster.points.push_back(point);
+        geometry_msgs::PoseStamped target_pose;
+        target_pose.header.frame_id = "map";
+        target_pose.header.stamp = ros::Time::now();
+        target_pose.pose.position.x = cluster_center.col(i).x();
+        target_pose.pose.position.y = cluster_center.col(i).y();
+        target_pose.pose.position.z = cluster_center.col(i).z();
+        target_pose.pose.orientation.w = 1;
+        goal_list.push_back(target_pose);
       }
       cluster_pub.publish(cluster);
+      id_exec = 0;
+      goal_exec = true;
 
       ros::Duration elapsed_time = ros::Time::now() - current_time;
       cout << "Elapsed Time: " << elapsed_time.toSec()*1000.0 << " ms" << endl;
+    }
+
+    if(goal_exec){
+      if(id_exec >= goal_list.size()){
+        id_exec = 0;
+        goal_exec = false;
+      }
+      else{
+        Eigen::Vector3f delta_pose;
+        // WARNING: 此处减去的应该为base_link的pose
+        delta_pose << goal_list[id_exec].pose.position.x - cam_o_in_map.point.x,
+        goal_list[id_exec].pose.position.y - cam_o_in_map.point.y,
+        goal_list[id_exec].pose.position.z - cam_o_in_map.point.z;
+        if(delta_pose.norm() < 1.0){
+          id_exec++;
+        }
+        else{
+          goal_pub.publish(goal_list[id_exec]);
+        }
+      }
     }
     
     // generate view point
