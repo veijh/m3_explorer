@@ -1,23 +1,26 @@
 #include <ros/ros.h>
-#include <octomap/octomap.h>
-#include <octomap_msgs/Octomap.h>
-#include <octomap_msgs/conversions.h>
 #include <vector>
 #include <unordered_map>
 #include <set>
 #include <queue>
+#include <octomap/octomap.h>
+#include <octomap_msgs/Octomap.h>
+#include <octomap_msgs/conversions.h>
 #include <Eigen/Dense>
 #include <tf2_ros/transform_listener.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/PointStamped.h>
 #include <geometry_msgs/TransformStamped.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <sys/time.h>
 #include <utility>
 #include <cmath>
 #include <random>
 #include "m3_explorer/frontier_detector.h"
+#include <mavros_msgs/CommandBool.h>
+#include <mavros_msgs/SetMode.h>
+#include <mavros_msgs/State.h>
 
 using namespace std;
 octomap::OcTree* ocmap;
@@ -34,7 +37,7 @@ void octomap_cb(const octomap_msgs::Octomap::ConstPtr& msg)
   // ocmap->getMetricMin(i, j, k);
   // cout << "min: " << i << ", " << j << ", " << k << endl;
   ocmap->getMetricSize(i, j, k);
-  cout << "size: " << i << ", " << j << ", " << k << endl << endl;
+  // cout << "size: " << i << ", " << j << ", " << k << endl << endl;
 
   // for(octomap::OcTree::tree_iterator it = ocmap->begin_tree(), end = ocmap->end_tree(); it!= end; ++it)
   // {
@@ -75,6 +78,103 @@ void octomap_cb(const octomap_msgs::Octomap::ConstPtr& msg)
 
 }
 
+mavros_msgs::State current_state;
+void state_cb(const mavros_msgs::State::ConstPtr& msg){
+  current_state = *msg;
+}
+
+geometry_msgs::PoseStamped cur_pos;
+void pos_cb(const geometry_msgs::PoseStamped::ConstPtr& msg){
+  cur_pos = *msg;
+}
+
+void offboard_takeoff(ros::NodeHandle& nh){
+  ros::Subscriber state_sub = nh.subscribe<mavros_msgs::State>
+          ("/uav0/mavros/state", 10, state_cb);
+  ros::Subscriber pos_sub = nh.subscribe<geometry_msgs::PoseStamped>
+          ("/uav0/mavros/local_position/pose", 10, pos_cb);
+  ros::Publisher local_pos_pub = nh.advertise<geometry_msgs::PoseStamped>
+          ("/uav0/mavros/setpoint_position/local", 10);
+  ros::ServiceClient arming_client = nh.serviceClient<mavros_msgs::CommandBool>
+          ("/uav0/mavros/cmd/arming");
+  ros::ServiceClient set_mode_client = nh.serviceClient<mavros_msgs::SetMode>
+          ("/uav0/mavros/set_mode");
+
+  //the setpoint publishing rate MUST be faster than 2Hz
+  ros::Rate rate(20.0);
+
+  // wait for FCU connection
+  while(ros::ok() && !current_state.connected){
+    ros::spinOnce();
+    rate.sleep();
+  }
+  ROS_INFO("mavros connected");
+
+  // get takeoff position
+  ros::Time start_time = ros::Time::now();
+  int count = 0;
+  geometry_msgs::PoseStamped takeoff_pos;
+  ROS_INFO("reading takeoff position");
+  while(ros::Time::now() - start_time < ros::Duration(2.0)){
+    ros::spinOnce();
+    count++;
+    takeoff_pos.pose.position.x += cur_pos.pose.position.x;
+    takeoff_pos.pose.position.y += cur_pos.pose.position.y;
+    takeoff_pos.pose.position.z += cur_pos.pose.position.z;
+    rate.sleep();
+  }
+  takeoff_pos.pose.position.x /= count;
+  takeoff_pos.pose.position.y /= count;
+  takeoff_pos.pose.position.z /= count;
+  ROS_INFO("takeoff position: %.2lf, %.2lf, %.2lf", takeoff_pos.pose.position.x, takeoff_pos.pose.position.y, takeoff_pos.pose.position.z);
+
+  geometry_msgs::PoseStamped pose;
+  pose.pose.position.x = takeoff_pos.pose.position.x;
+  pose.pose.position.y = takeoff_pos.pose.position.y;
+  pose.pose.position.z = takeoff_pos.pose.position.z + 1.5;
+
+  //send a few setpoints before starting
+  for(int i = 5; ros::ok() && i > 0; --i){
+      local_pos_pub.publish(pose);
+      ros::spinOnce();
+      rate.sleep();
+  }
+
+  mavros_msgs::SetMode offb_set_mode;
+  offb_set_mode.request.custom_mode = "OFFBOARD";
+
+  mavros_msgs::CommandBool arm_cmd;
+  arm_cmd.request.value = true;
+
+  ros::Time last_request = ros::Time::now();
+
+  while(abs(cur_pos.pose.position.z - pose.pose.position.z) > 0.1){
+    if(current_state.mode != "OFFBOARD" &&
+        (ros::Time::now() - last_request > ros::Duration(1.0))){
+        if( set_mode_client.call(offb_set_mode) &&
+            offb_set_mode.response.mode_sent){
+            ROS_INFO("Offboard enabled");
+        }
+        last_request = ros::Time::now();
+    } else {
+        if(!current_state.armed &&
+            (ros::Time::now() - last_request > ros::Duration(1.0))){
+            if( arming_client.call(arm_cmd) &&
+                arm_cmd.response.success){
+                ROS_INFO("Vehicle armed");
+            }
+            last_request = ros::Time::now();
+        }
+    }
+
+    local_pos_pub.publish(pose);
+
+    ros::spinOnce();
+    rate.sleep();
+  }
+  ROS_INFO("takeoff done");
+}
+
 int main(int argc, char** argv){
   ros::init(argc, argv, "m3_explorer");
   ros::NodeHandle nh("");
@@ -95,6 +195,7 @@ int main(int argc, char** argv){
   int id_exec = 0;
   vector<geometry_msgs::PoseStamped> goal_list;
 
+  // marker template
   visualization_msgs::Marker marker;
   marker.header.frame_id = "map";
   marker.pose.orientation.w = 1.0;
@@ -105,7 +206,10 @@ int main(int argc, char** argv){
   color.r = 1.0; color.g = 0.0; color.b = 0.0; color.a = 1.0;
   marker.color = color;
   marker.type = visualization_msgs::Marker::CUBE_LIST;
+
+  // frontiers
   set<QuadMesh> frontiers;
+  offboard_takeoff(nh);
 
   while(ros::ok()){
 
@@ -320,7 +424,9 @@ int main(int argc, char** argv){
         delta_pose << goal_list[id_exec].pose.position.x - cam_o_in_map.point.x,
         goal_list[id_exec].pose.position.y - cam_o_in_map.point.y,
         goal_list[id_exec].pose.position.z - cam_o_in_map.point.z;
-        if(delta_pose.norm() < 1.0){
+        octomap::OcTreeNode* node = ocmap->search(octomap::point3d(goal_list[id_exec].pose.position.x, goal_list[id_exec].pose.position.y, goal_list[id_exec].pose.position.z));
+        
+        if(delta_pose.norm() < 1.0 || (node != nullptr && node->getOccupancy() > 0.75)){
           id_exec++;
         }
         else{
@@ -330,6 +436,9 @@ int main(int argc, char** argv){
     }
     
     // generate view point
+
+    // path
+
     ros::spinOnce();
     rate.sleep();
   }
