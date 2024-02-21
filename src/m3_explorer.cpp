@@ -310,10 +310,12 @@ int main(int argc, char** argv){
       struct timeval t1{},t2{};
       double timeuse;
       // convert set to matrix
-      Eigen::Matrix3Xf frontier_mat(3, frontiers.size());
+      Eigen::Matrix3Xf frontier_center_mat(3, frontiers.size());
+      Eigen::Matrix3Xf frontier_normal_mat(3, frontiers.size());
       auto it = frontiers.begin();
       for(int i = 0; i < frontiers.size(); i++){
-        frontier_mat.col(i) << it->center.x(), it->center.y(), it->center.z();
+        frontier_center_mat.col(i) << it->center.x(), it->center.y(), it->center.z();
+        frontier_normal_mat.col(i) << it->normal.x(), it->normal.y(), it->normal.z();
         it++;
       }
       
@@ -331,8 +333,9 @@ int main(int argc, char** argv){
         }
       }
       Eigen::Matrix3Xf cluster_center(3, cluster_num);
+      Eigen::Matrix3Xf normal_vec(3, cluster_num);
       for(int i = 0; i < initial_idx.size(); i++){
-        cluster_center.col(i) = frontier_mat.col(initial_idx[i]);
+        cluster_center.col(i) = frontier_center_mat.col(initial_idx[i]);
       }
 
       Eigen::MatrixXf distance_to_center(cluster_num, frontiers.size());
@@ -342,7 +345,7 @@ int main(int argc, char** argv){
 
         // calculate the distance from each point to all centers
         for(int i = 0; i < cluster_num; i++){
-            distance_to_center.row(i) = (cluster_center.col(i).replicate(1, frontier_mat.cols()) - frontier_mat).colwise().norm();
+            distance_to_center.row(i) = (cluster_center.col(i).replicate(1, frontier_center_mat.cols()) - frontier_center_mat).colwise().norm();
         }
         // gettimeofday(&t2,nullptr);
         // timeuse = (t2.tv_sec - t1.tv_sec) + (double)(t2.tv_usec - t1.tv_usec)/1000000.0;
@@ -353,15 +356,18 @@ int main(int argc, char** argv){
         vector<int> cluster_count(cluster_num, 0);
         Eigen::Matrix3Xf new_center(3, cluster_num);
         new_center.setZero();
+        normal_vec.setZero();
         for(int i = 0; i < distance_to_center.cols(); i++){
           int idx = 0;
           distance_to_center.col(i).minCoeff(&idx);
           cluster_count[idx]++;
-          new_center.col(idx) += frontier_mat.col(i);
+          new_center.col(idx) += frontier_center_mat.col(i);
+          normal_vec.col(idx) += frontier_normal_mat.col(i);
         }
 
         for(int i = 0; i < new_center.cols(); i++){
           new_center.col(i) /= cluster_count[i];
+          normal_vec.col(i) /= cluster_count[i];
         }
         // gettimeofday(&t2,nullptr);
         // timeuse = (t2.tv_sec - t1.tv_sec) + (double)(t2.tv_usec - t1.tv_usec)/1000000.0;
@@ -389,7 +395,7 @@ int main(int argc, char** argv){
       visualization_msgs::Marker cluster(marker);
       cluster.type = visualization_msgs::Marker::SPHERE_LIST;
       cluster.color.a = 1; cluster.color.r = 0; cluster.color.g = 1; cluster.color.b = 0;
-      cluster.scale.x = 0.5; cluster.scale.y = 0.5; cluster.scale.z = 0.5;
+      cluster.scale.x = 0.2; cluster.scale.y = 0.2; cluster.scale.z = 0.2;
       for(int i = 0; i < cluster_center.cols(); i++){
         geometry_msgs::Point point;
         point.x = cluster_center.col(i).x();
@@ -402,10 +408,34 @@ int main(int argc, char** argv){
         target_pose.pose.position.x = cluster_center.col(i).x();
         target_pose.pose.position.y = cluster_center.col(i).y();
         target_pose.pose.position.z = cluster_center.col(i).z();
+        target_pose.pose.orientation.x = normal_vec.col(i).normalized().x();
+        target_pose.pose.orientation.y = normal_vec.col(i).normalized().y();
+        target_pose.pose.orientation.z = normal_vec.col(i).normalized().z();
         target_pose.pose.orientation.w = 1;
         goal_list.push_back(target_pose);
       }
       cluster_pub.publish(cluster);
+
+      // visualize normal vector
+      visualization_msgs::Marker cluster_normal(marker);
+      cluster_normal.type = visualization_msgs::Marker::ARROW;
+      cluster_normal.color.a = 1; cluster_normal.color.r = 0; cluster_normal.color.g = 1; cluster_normal.color.b = 0;
+      cluster_normal.scale.x = 0.1; cluster_normal.scale.y = 0.2; cluster_normal.scale.z = 0.2;
+      for(int i = 0; i < normal_vec.cols(); i++){
+        cluster_normal.points.clear();
+        cluster_normal.id = 200+i;
+        geometry_msgs::Point point;
+        point.x = cluster_center.col(i).x();
+        point.y = cluster_center.col(i).y();
+        point.z = cluster_center.col(i).z();
+        cluster_normal.points.push_back(point);
+        point.x = cluster_center.col(i).x() + normal_vec.col(i).normalized().x()*1.0;
+        point.y = cluster_center.col(i).y() + normal_vec.col(i).normalized().y()*1.0;
+        point.z = cluster_center.col(i).z() + normal_vec.col(i).normalized().z()*1.0;
+        cluster_normal.points.push_back(point);
+        cluster_pub.publish(cluster_normal);
+      }
+
       id_exec = 0;
       goal_exec = true;
 
@@ -419,19 +449,68 @@ int main(int argc, char** argv){
         goal_exec = false;
       }
       else{
-        Eigen::Vector3f delta_pose;
-        // WARNING: 此处减去的应该为base_link的pose
-        delta_pose << goal_list[id_exec].pose.position.x - cam_o_in_map.point.x,
-        goal_list[id_exec].pose.position.y - cam_o_in_map.point.y,
-        goal_list[id_exec].pose.position.z - cam_o_in_map.point.z;
-        octomap::OcTreeNode* node = ocmap->search(octomap::point3d(goal_list[id_exec].pose.position.x, goal_list[id_exec].pose.position.y, goal_list[id_exec].pose.position.z));
-        
-        if(delta_pose.norm() < 1.0 || (node != nullptr && node->getOccupancy() > 0.75)){
+        cout << "[INFO] exe id " << id_exec << endl;
+        // generate view point
+        octomap::point3d center(goal_list[id_exec].pose.position.x, goal_list[id_exec].pose.position.y, goal_list[id_exec].pose.position.z);
+        octomap::point3d offset(goal_list[id_exec].pose.orientation.x, goal_list[id_exec].pose.orientation.y, goal_list[id_exec].pose.orientation.z);
+        vector<octomap::point3d> view_point_candidate;
+        // raycast
+        for(double len = 0.3; len < 2.0; len += 0.3){
+          octomap::point3d view_point = center - offset * len;
+          octomap::OcTreeNode* view_node = ocmap->search(view_point);
+          if(view_node == nullptr){
+            continue;
+          }
+          else{
+            if(view_node->getOccupancy() > 0.75){
+              continue;
+            }
+          }
+          bool no_collision = true;
+          // 是否可达
+          for(double x_offset = -0.5; x_offset < 0.5 && no_collision; x_offset += 0.1){
+            for(double y_offset = -0.5; y_offset < 0.5 && no_collision; y_offset += 0.1){
+              octomap::point3d check_point(center);
+              check_point.x() = view_point.x() + x_offset;
+              check_point.y() = view_point.y() + y_offset;
+              octomap::OcTreeNode* check_node = ocmap->search(check_point);
+              // 不可达
+              if(check_node != nullptr && check_node->getOccupancy() > 0.75){
+                no_collision = false;
+              }
+            }
+          }
+          if(no_collision){
+            view_point_candidate.push_back(view_point);
+          }
+          else{
+            break;
+          }
+        }
+
+        if(view_point_candidate.empty()){
           id_exec++;
         }
         else{
-          goal_pub.publish(goal_list[id_exec]);
+          geometry_msgs::PoseStamped goal(goal_list[id_exec]);
+          goal.pose.position.x = (view_point_candidate.end()-1)->x();
+          goal.pose.position.y = (view_point_candidate.end()-1)->y();
+          goal.pose.position.z = (view_point_candidate.end()-1)->z();
+
+          Eigen::Vector3f delta_pose;
+          // WARNING: 此处减去的应该为base_link的pose
+          delta_pose << goal.pose.position.x - cam_o_in_map.point.x,
+          goal.pose.position.y - cam_o_in_map.point.y,
+          goal.pose.position.z - cam_o_in_map.point.z;
+          
+          if(delta_pose.norm() < 1.0){
+            id_exec++;
+          }
+          else{
+            goal_pub.publish(goal);
+          }
         }
+
       }
     }
     
