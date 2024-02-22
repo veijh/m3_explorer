@@ -88,7 +88,7 @@ void pos_cb(const geometry_msgs::PoseStamped::ConstPtr& msg){
   cur_pos = *msg;
 }
 
-void offboard_takeoff(ros::NodeHandle& nh){
+void offboard_takeoff(ros::NodeHandle& nh, const double& height){
   ros::Subscriber state_sub = nh.subscribe<mavros_msgs::State>
           ("/uav0/mavros/state", 10, state_cb);
   ros::Subscriber pos_sub = nh.subscribe<geometry_msgs::PoseStamped>
@@ -131,7 +131,7 @@ void offboard_takeoff(ros::NodeHandle& nh){
   geometry_msgs::PoseStamped pose;
   pose.pose.position.x = takeoff_pos.pose.position.x;
   pose.pose.position.y = takeoff_pos.pose.position.y;
-  pose.pose.position.z = takeoff_pos.pose.position.z + 1.5;
+  pose.pose.position.z = takeoff_pos.pose.position.z + height;
 
   //send a few setpoints before starting
   for(int i = 5; ros::ok() && i > 0; --i){
@@ -209,7 +209,9 @@ int main(int argc, char** argv){
 
   // frontiers
   set<QuadMesh> frontiers;
-  offboard_takeoff(nh);
+
+  // switch to offboard mode && takeoff to desired height
+  offboard_takeoff(nh, 0.5);
 
   while(ros::ok()){
 
@@ -306,9 +308,6 @@ int main(int argc, char** argv){
       current_time = ros::Time::now();
       int cluster_num = 10;
 
-
-      struct timeval t1{},t2{};
-      double timeuse;
       // convert set to matrix
       Eigen::Matrix3Xf frontier_center_mat(3, frontiers.size());
       Eigen::Matrix3Xf frontier_normal_mat(3, frontiers.size());
@@ -340,19 +339,11 @@ int main(int argc, char** argv){
 
       Eigen::MatrixXf distance_to_center(cluster_num, frontiers.size());
       for(int iter_count = 0; iter_count < 1000; iter_count++){
-        // cout << "[LOG] cal dis.";
-        // gettimeofday(&t1,nullptr);
-
         // calculate the distance from each point to all centers
         for(int i = 0; i < cluster_num; i++){
             distance_to_center.row(i) = (cluster_center.col(i).replicate(1, frontier_center_mat.cols()) - frontier_center_mat).colwise().norm();
         }
-        // gettimeofday(&t2,nullptr);
-        // timeuse = (t2.tv_sec - t1.tv_sec) + (double)(t2.tv_usec - t1.tv_usec)/1000000.0;
-        // cout<<" using time = " << timeuse << " s" << endl;  //(in sec)
 
-        // cout << "[LOG] cal new center.";
-        // gettimeofday(&t1,nullptr);
         vector<int> cluster_count(cluster_num, 0);
         Eigen::Matrix3Xf new_center(3, cluster_num);
         new_center.setZero();
@@ -369,12 +360,7 @@ int main(int argc, char** argv){
           new_center.col(i) /= cluster_count[i];
           normal_vec.col(i) /= cluster_count[i];
         }
-        // gettimeofday(&t2,nullptr);
-        // timeuse = (t2.tv_sec - t1.tv_sec) + (double)(t2.tv_usec - t1.tv_usec)/1000000.0;
-        // cout<<" using time = " << timeuse << " s" << endl;  //(in sec)
 
-        // cout << "[LOG] whether or not to break.";
-        // gettimeofday(&t1,nullptr);
         float delta = (new_center - cluster_center).colwise().norm().maxCoeff();
         if(delta < 1e-3){
           cout << "break after iteration " << iter_count << endl;
@@ -383,9 +369,6 @@ int main(int argc, char** argv){
         else{
           cluster_center = new_center;
         }
-        // gettimeofday(&t2,nullptr);
-        // timeuse = (t2.tv_sec - t1.tv_sec) + (double)(t2.tv_usec - t1.tv_usec)/1000000.0;
-        // cout<<" using time = " << timeuse << " s" << endl;  //(in sec)
       }
       
       if(!goal_list.empty()){
@@ -468,8 +451,8 @@ int main(int argc, char** argv){
           }
           bool no_collision = true;
           // 是否可达
-          for(double x_offset = -0.5; x_offset < 0.5 && no_collision; x_offset += 0.1){
-            for(double y_offset = -0.5; y_offset < 0.5 && no_collision; y_offset += 0.1){
+          for(double x_offset = -0.5; x_offset <= 0.5 && no_collision; x_offset += 0.1){
+            for(double y_offset = -0.5; y_offset <= 0.5 && no_collision; y_offset += 0.1){
               octomap::point3d check_point(center);
               check_point.x() = view_point.x() + x_offset;
               check_point.y() = view_point.y() + y_offset;
@@ -504,6 +487,7 @@ int main(int argc, char** argv){
           goal.pose.position.z - cam_o_in_map.point.z;
           
           if(delta_pose.norm() < 1.0){
+            ros::Duration(2.0).sleep();
             id_exec++;
           }
           else{
