@@ -172,6 +172,7 @@ void offboard_takeoff(ros::NodeHandle& nh, const double& height){
     ros::spinOnce();
     rate.sleep();
   }
+
   ROS_INFO("takeoff done");
 }
 
@@ -186,7 +187,7 @@ int main(int argc, char** argv){
   ros::Rate rate(5);
 
   // frontier voxels display
-  ros::Publisher markerArrayPub = nh.advertise<visualization_msgs::MarkerArray>("visualization_marker_array", 10);
+  ros::Publisher frontier_maker_array_pub = nh.advertise<visualization_msgs::MarkerArray>("visualization_marker_array", 10);
   // frontier cluster display
   ros::Publisher cluster_pub = nh.advertise<visualization_msgs::Marker>("cluster_pub", 10);
   // ego planner input: target pose
@@ -211,9 +212,10 @@ int main(int argc, char** argv){
   set<QuadMesh> frontiers;
 
   // switch to offboard mode && takeoff to desired height
-  offboard_takeoff(nh, 0.5);
+  offboard_takeoff(nh, 1.5);
 
   while(ros::ok()){
+    ros::spinOnce();
 
     // lookup transform of 3 axises
     geometry_msgs::PointStamped cam_o_in_cam;
@@ -236,68 +238,14 @@ int main(int argc, char** argv){
     //// input = octomap; current pose; FOV; max range; region bbx
     //// output = a set containing all frontier voxels
 
-    visualization_msgs::MarkerArray markerArray;
-
     ros::Time current_time = ros::Time::now();
 
     frontier_detect(frontiers, ocmap, cam_o_in_map, sensor_range);
-
-    vector<vector<visualization_msgs::Marker>> all_marker(3);
-    if(!frontiers.empty()){
-      int total_type = 0;
-      vector<unordered_map<double, int>> marker_type(3);
-      auto it = frontiers.begin();
-      for(int i = 0; i < frontiers.size(); i++){
-        geometry_msgs::Vector3 scale;
-        int flag = -1;
-        if(it->normal.x() > 0.5 || it->normal.x() < -0.5){
-          flag = 0;
-          scale.x = resolution;
-          scale.y = it->size;
-          scale.z = it->size;
-        }
-        if(it->normal.y() > 0.5 || it->normal.y() < -0.5){
-          flag = 1;
-          scale.x = it->size;
-          scale.y = resolution;
-          scale.z = it->size;
-        }
-        if(it->normal.z() > 0.5 || it->normal.z() < -0.5){
-          flag = 2;
-          scale.x = it->size;
-          scale.y = it->size;
-          scale.z = resolution;
-        }
-
-        if(flag > -1){
-          if(marker_type[flag].find(it->size) == marker_type[flag].end()){
-            marker_type[flag][it->size] = marker_type[flag].size();
-            all_marker[flag].resize(marker_type[flag].size(), marker);
-            all_marker[flag][marker_type[flag][it->size]].id = marker_type[flag][it->size] + flag * 100;
-            all_marker[flag][marker_type[flag][it->size]].scale = scale;
-          }
-          geometry_msgs::Point point_pose;
-          point_pose.x = it->center.x();
-          point_pose.y = it->center.y();
-          point_pose.z = it->center.z();
-          all_marker[flag][marker_type[flag][it->size]].points.push_back(point_pose);
-        }
-        it++;
-      }
-    }
-
-    for(auto& i:all_marker){
-      for(auto& j:i){
-        markerArray.markers.push_back(j);
-      }
-    }
+    // frontier_visualize(frontiers, 0.1, frontier_maker_array_pub);
     
     ros::Duration elapsed_time = ros::Time::now() - current_time;
-    cout << "Elapsed Time: " << elapsed_time.toSec()*1000.0 << " ms" << endl;
-
+    cout << "frontier detect using time: " << elapsed_time.toSec()*1000.0 << " ms" << endl;
     cout << "frontier voxel num is : " << frontiers.size() << endl;
-
-    markerArrayPub.publish(markerArray);
 
     //// frontier clustering
     //// input = the set containing all frontier voxels
@@ -306,15 +254,17 @@ int main(int argc, char** argv){
     if(!frontiers.empty() && goal_exec == false)
     {
       current_time = ros::Time::now();
-      int cluster_num = 10;
+      int cluster_num = frontiers.size() / 500;
 
       // convert set to matrix
       Eigen::Matrix3Xf frontier_center_mat(3, frontiers.size());
       Eigen::Matrix3Xf frontier_normal_mat(3, frontiers.size());
+      Eigen::RowVectorXf frontier_size_mat(frontiers.size());
       auto it = frontiers.begin();
       for(int i = 0; i < frontiers.size(); i++){
         frontier_center_mat.col(i) << it->center.x(), it->center.y(), it->center.z();
         frontier_normal_mat.col(i) << it->normal.x(), it->normal.y(), it->normal.z();
+        frontier_size_mat.col(i) << it->size; 
         it++;
       }
       
@@ -332,7 +282,7 @@ int main(int argc, char** argv){
         }
       }
       Eigen::Matrix3Xf cluster_center(3, cluster_num);
-      Eigen::Matrix3Xf normal_vec(3, cluster_num);
+      Eigen::Matrix3Xf cluster_normal(3, cluster_num);
       for(int i = 0; i < initial_idx.size(); i++){
         cluster_center.col(i) = frontier_center_mat.col(initial_idx[i]);
       }
@@ -344,21 +294,22 @@ int main(int argc, char** argv){
             distance_to_center.row(i) = (cluster_center.col(i).replicate(1, frontier_center_mat.cols()) - frontier_center_mat).colwise().norm();
         }
 
-        vector<int> cluster_count(cluster_num, 0);
+        vector<double> cluster_weight(cluster_num, 0);
         Eigen::Matrix3Xf new_center(3, cluster_num);
         new_center.setZero();
-        normal_vec.setZero();
+        cluster_normal.setZero();
         for(int i = 0; i < distance_to_center.cols(); i++){
           int idx = 0;
           distance_to_center.col(i).minCoeff(&idx);
-          cluster_count[idx]++;
-          new_center.col(idx) += frontier_center_mat.col(i);
-          normal_vec.col(idx) += frontier_normal_mat.col(i);
+          double weight = frontier_size_mat(i) * frontier_size_mat(i);
+          cluster_weight[idx] += weight;
+          new_center.col(idx) += weight * frontier_center_mat.col(i);
+          cluster_normal.col(idx) += weight * frontier_normal_mat.col(i);
         }
 
         for(int i = 0; i < new_center.cols(); i++){
-          new_center.col(i) /= cluster_count[i];
-          normal_vec.col(i) /= cluster_count[i];
+          new_center.col(i) /= cluster_weight[i];
+          cluster_normal.col(i) /= cluster_weight[i];
         }
 
         float delta = (new_center - cluster_center).colwise().norm().maxCoeff();
@@ -375,48 +326,48 @@ int main(int argc, char** argv){
         goal_list.clear();
       }
 
-      visualization_msgs::Marker cluster(marker);
-      cluster.type = visualization_msgs::Marker::SPHERE_LIST;
-      cluster.color.a = 1; cluster.color.r = 0; cluster.color.g = 1; cluster.color.b = 0;
-      cluster.scale.x = 0.2; cluster.scale.y = 0.2; cluster.scale.z = 0.2;
+      visualization_msgs::Marker marker_cluster_center(marker);
+      marker_cluster_center.type = visualization_msgs::Marker::SPHERE_LIST;
+      marker_cluster_center.color.a = 1; marker_cluster_center.color.r = 0; marker_cluster_center.color.g = 1; marker_cluster_center.color.b = 0;
+      marker_cluster_center.scale.x = 0.2; marker_cluster_center.scale.y = 0.2; marker_cluster_center.scale.z = 0.2;
       for(int i = 0; i < cluster_center.cols(); i++){
         geometry_msgs::Point point;
         point.x = cluster_center.col(i).x();
         point.y = cluster_center.col(i).y();
         point.z = cluster_center.col(i).z();
-        cluster.points.push_back(point);
+        marker_cluster_center.points.push_back(point);
         geometry_msgs::PoseStamped target_pose;
         target_pose.header.frame_id = "map";
         target_pose.header.stamp = ros::Time::now();
         target_pose.pose.position.x = cluster_center.col(i).x();
         target_pose.pose.position.y = cluster_center.col(i).y();
         target_pose.pose.position.z = cluster_center.col(i).z();
-        target_pose.pose.orientation.x = normal_vec.col(i).normalized().x();
-        target_pose.pose.orientation.y = normal_vec.col(i).normalized().y();
-        target_pose.pose.orientation.z = normal_vec.col(i).normalized().z();
+        target_pose.pose.orientation.x = cluster_normal.col(i).normalized().x();
+        target_pose.pose.orientation.y = cluster_normal.col(i).normalized().y();
+        target_pose.pose.orientation.z = cluster_normal.col(i).normalized().z();
         target_pose.pose.orientation.w = 1;
         goal_list.push_back(target_pose);
       }
-      cluster_pub.publish(cluster);
+      cluster_pub.publish(marker_cluster_center);
 
       // visualize normal vector
-      visualization_msgs::Marker cluster_normal(marker);
-      cluster_normal.type = visualization_msgs::Marker::ARROW;
-      cluster_normal.color.a = 1; cluster_normal.color.r = 0; cluster_normal.color.g = 1; cluster_normal.color.b = 0;
-      cluster_normal.scale.x = 0.1; cluster_normal.scale.y = 0.2; cluster_normal.scale.z = 0.2;
-      for(int i = 0; i < normal_vec.cols(); i++){
-        cluster_normal.points.clear();
-        cluster_normal.id = 200+i;
+      visualization_msgs::Marker marker_cluster_normal(marker);
+      marker_cluster_normal.type = visualization_msgs::Marker::ARROW;
+      marker_cluster_normal.color.a = 1; marker_cluster_normal.color.r = 0; marker_cluster_normal.color.g = 1; marker_cluster_normal.color.b = 0;
+      marker_cluster_normal.scale.x = 0.1; marker_cluster_normal.scale.y = 0.2; marker_cluster_normal.scale.z = 0.2;
+      for(int i = 0; i < cluster_normal.cols(); i++){
+        marker_cluster_normal.points.clear();
+        marker_cluster_normal.id = 200+i;
         geometry_msgs::Point point;
         point.x = cluster_center.col(i).x();
         point.y = cluster_center.col(i).y();
         point.z = cluster_center.col(i).z();
-        cluster_normal.points.push_back(point);
-        point.x = cluster_center.col(i).x() + normal_vec.col(i).normalized().x()*1.0;
-        point.y = cluster_center.col(i).y() + normal_vec.col(i).normalized().y()*1.0;
-        point.z = cluster_center.col(i).z() + normal_vec.col(i).normalized().z()*1.0;
-        cluster_normal.points.push_back(point);
-        cluster_pub.publish(cluster_normal);
+        marker_cluster_normal.points.push_back(point);
+        point.x = cluster_center.col(i).x() + cluster_normal.col(i).normalized().x()*1.0;
+        point.y = cluster_center.col(i).y() + cluster_normal.col(i).normalized().y()*1.0;
+        point.z = cluster_center.col(i).z() + cluster_normal.col(i).normalized().z()*1.0;
+        marker_cluster_normal.points.push_back(point);
+        cluster_pub.publish(marker_cluster_normal);
       }
 
       id_exec = 0;
@@ -426,6 +377,7 @@ int main(int argc, char** argv){
       cout << "Elapsed Time: " << elapsed_time.toSec()*1000.0 << " ms" << endl;
     }
 
+    //// goal generation
     if(goal_exec){
       if(id_exec >= goal_list.size()){
         id_exec = 0;
@@ -476,9 +428,9 @@ int main(int argc, char** argv){
         }
         else{
           geometry_msgs::PoseStamped goal(goal_list[id_exec]);
-          goal.pose.position.x = (view_point_candidate.end()-1)->x();
-          goal.pose.position.y = (view_point_candidate.end()-1)->y();
-          goal.pose.position.z = (view_point_candidate.end()-1)->z();
+          goal.pose.position.x = (view_point_candidate.begin() + view_point_candidate.size()/2)->x();
+          goal.pose.position.y = (view_point_candidate.begin() + view_point_candidate.size()/2)->y();
+          goal.pose.position.z = (view_point_candidate.begin() + view_point_candidate.size()/2)->z();
 
           Eigen::Vector3f delta_pose;
           // WARNING: 此处减去的应该为base_link的pose
@@ -501,8 +453,6 @@ int main(int argc, char** argv){
     // generate view point
 
     // path
-
-    ros::spinOnce();
     rate.sleep();
   }
   return 0;
