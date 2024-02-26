@@ -16,6 +16,7 @@
 #include <sys/time.h>
 #include <utility>
 #include <cmath>
+#include <unordered_map>
 
 using namespace std;
 
@@ -53,4 +54,7 @@ struct QuadMesh
 // input = octomap; current pose; FOV; max range; region bbx
 // output = a set containing all frontier voxels
 void frontier_detect(set<QuadMesh>& frontiers, octomap::OcTree* ocmap, const geometry_msgs::PointStamped& cur_pose, const double& sensor_range);
+bool is_next_to_obstacle(octomap::OcTree* ocmap, const octomap::point3d& point, const double& check_box_size);
+void frontier_visualize(set<QuadMesh> &frontiers, const double& mesh_thickness, ros::Publisher& frontier_maker_array_pub);
+
 #endif

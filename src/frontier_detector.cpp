@@ -14,7 +14,7 @@ void frontier_detect(set<QuadMesh>& frontiers, octomap::OcTree* ocmap, const geo
           continue;
         }
 
-        if(ocmap->search(it->center) != nullptr){
+        if(ocmap->search(it->center) != nullptr || is_next_to_obstacle(ocmap, it->center, 0.4)){
           frontiers.erase(it++);
         }
         else{
@@ -64,7 +64,7 @@ void frontier_detect(set<QuadMesh>& frontiers, octomap::OcTree* ocmap, const geo
             frontiers.insert(mesh);
           }
           else{
-            if(nbr_node->hasChildren()){
+            if(ocmap->nodeHasChildren(nbr_node)){
               // bfs search unknown voxel
               queue<pair<octomap::point3d, int>> bfs_queue;
               octomap::point3d surface = center + nbr_dir[i] * (size / 2.0 + ocmap->getResolution() / 2.0);
@@ -78,7 +78,7 @@ void frontier_detect(set<QuadMesh>& frontiers, octomap::OcTree* ocmap, const geo
 
                 octomap::OcTreeNode* point_node = ocmap->search(point, point_depth);
                 if(point_node != nullptr){
-                    if(point_node->hasChildren()){
+                    if(ocmap->nodeHasChildren(point_node)){
                       // add 4 points into queue
                       for(int offset_i = 0; offset_i < 4; offset_i++){
                         double child_size = point_size / 2.0;
@@ -99,4 +99,89 @@ void frontier_detect(set<QuadMesh>& frontiers, octomap::OcTree* ocmap, const geo
         }
       }
     }
+}
+
+bool is_next_to_obstacle(octomap::OcTree* ocmap, const octomap::point3d& point, const double& check_box_size){
+  octomap::point3d check_point(point);
+  for(double x_offset = -check_box_size/2.0; x_offset <= check_box_size/2.0; x_offset += 0.05){
+    for(double y_offset = -check_box_size/2.0; y_offset <= check_box_size/2.0; y_offset += 0.05){
+      check_point.x() = point.x() + x_offset;
+      check_point.y() = point.y() + y_offset;
+      octomap::OcTreeNode *result = ocmap->search(check_point);
+      if(result != nullptr && result->getOccupancy() > 0.6){
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+void frontier_visualize(set<QuadMesh> &frontiers, const double& mesh_thickness, ros::Publisher& frontier_maker_array_pub){
+  // marker template
+  visualization_msgs::Marker marker;
+  marker.header.frame_id = "map";
+  marker.pose.orientation.w = 1.0;
+  marker.pose.orientation.x = 0.0;
+  marker.pose.orientation.y = 0.0;
+  marker.pose.orientation.z = 0.0;
+  std_msgs::ColorRGBA color;
+  color.r = 1.0; color.g = 0.0; color.b = 0.0; color.a = 1.0;
+  marker.color = color;
+  marker.type = visualization_msgs::Marker::CUBE_LIST;
+
+  // CUBE_LIST requires that all elements in the cube list have the same scale.
+  vector<vector<visualization_msgs::Marker>> all_marker(3);
+  if(!frontiers.empty()){
+    int total_type = 0;
+    // mesh_size -> the type of 
+    vector<unordered_map<double, int>> marker_type(3);
+    auto it = frontiers.begin();
+    for(int i = 0; i < frontiers.size(); i++){
+      geometry_msgs::Vector3 scale;
+      int flag = -1;
+      if(it->normal.x() > 0.5 || it->normal.x() < -0.5){
+        flag = 0;
+        scale.x = mesh_thickness;
+        scale.y = it->size;
+        scale.z = it->size;
+      }
+      if(it->normal.y() > 0.5 || it->normal.y() < -0.5){
+        flag = 1;
+        scale.x = it->size;
+        scale.y = mesh_thickness;
+        scale.z = it->size;
+      }
+      if(it->normal.z() > 0.5 || it->normal.z() < -0.5){
+        flag = 2;
+        scale.x = it->size;
+        scale.y = it->size;
+        scale.z = mesh_thickness;
+      }
+
+      if(flag > -1){
+        if(marker_type[flag].find(it->size) == marker_type[flag].end()){
+          marker_type[flag][it->size] = marker_type[flag].size();
+          all_marker[flag].resize(marker_type[flag].size(), marker);
+          all_marker[flag][marker_type[flag][it->size]].id = marker_type[flag][it->size] + flag * 100;
+          all_marker[flag][marker_type[flag][it->size]].scale = scale;
+        }
+        geometry_msgs::Point point_pose;
+        point_pose.x = it->center.x();
+        point_pose.y = it->center.y();
+        point_pose.z = it->center.z();
+        all_marker[flag][marker_type[flag][it->size]].points.push_back(point_pose);
+      }
+      it++;
+    }
+  }
+
+  visualization_msgs::MarkerArray frontier_maker_array;
+
+  for(auto& i:all_marker){
+    for(auto& j:i){
+      frontier_maker_array.markers.push_back(j);
+    }
+  }
+
+  frontier_maker_array_pub.publish(frontier_maker_array);
 }
