@@ -188,11 +188,14 @@ int main(int argc, char** argv){
   ros::Rate rate(5);
 
   // frontier voxels display
-  ros::Publisher frontier_maker_array_pub = nh.advertise<visualization_msgs::MarkerArray>("visualization_marker_array", 10);
+  ros::Publisher frontier_maker_array_pub = nh.advertise<visualization_msgs::MarkerArray>("frontier", 10);
   // frontier cluster display
-  ros::Publisher cluster_pub = nh.advertise<visualization_msgs::MarkerArray>("cluster_pub", 10);
+  ros::Publisher cluster_pub = nh.advertise<visualization_msgs::MarkerArray>("cluster", 10);
+  // view point display
+  ros::Publisher view_point_pub = nh.advertise<geometry_msgs::PoseArray>("view_point", 10);
   // ego planner input: target pose
   ros::Publisher goal_pub = nh.advertise<geometry_msgs::PoseStamped>("/move_base_simple/goal", 10);
+
   bool goal_exec = false;
   int id_exec = 0;
   vector<geometry_msgs::PoseStamped> goal_list;
@@ -248,102 +251,37 @@ int main(int argc, char** argv){
     cout << "frontier detect using time: " << elapsed_time.toSec()*1000.0 << " ms" << endl;
     cout << "frontier voxel num is : " << frontiers.size() << endl;
 
-    //// frontier clustering
-    //// input = the set containing all frontier voxels
-    //// output = a vector containing all frontier clusters
     vector<Cluster> cluster_vec;
+    geometry_msgs::PoseArray vp_array;
 
     if(!frontiers.empty() && goal_exec == false)
     {
       current_time = ros::Time::now();
+
+      //// frontier clustering
+      //// input = the set containing all frontier voxels
+      //// output = a vector containing all frontier clusters
       cluster_vec = k_mean_cluster(frontiers);
       cluster_visualize(cluster_vec, cluster_pub);
 
       goal_exec = true;
 
-      ros::Duration elapsed_time = ros::Time::now() - current_time;
-      cout << "Elapsed Time: " << elapsed_time.toSec()*1000.0 << " ms" << endl;
+      cout << "frontier clusters generation using time: " << (ros::Time::now() - current_time).toSec()*1000.0 << " ms" << endl;
+
+      current_time = ros::Time::now();
+      //// generate view point
+      //// input = a vector containing all frontier clusters
+      //// output = a vector containing poses of all view points
+      vp_array = view_point_generate(cluster_vec, ocmap);
+      view_point_pub.publish(vp_array);
+
+      cout << "view points generation using time: " << (ros::Time::now() - current_time).toSec()*1000.0 << " ms" << endl;
     }
 
-    // generate view point
+
+    //// path planning
     
-
-    //// goal generation
-    if(goal_exec){
-      if(id_exec >= goal_list.size()){
-        id_exec = 0;
-        goal_exec = false;
-      }
-      else{
-        cout << "[INFO] exe id " << id_exec << endl;
-        // generate view point
-        octomap::point3d center(goal_list[id_exec].pose.position.x, goal_list[id_exec].pose.position.y, goal_list[id_exec].pose.position.z);
-        octomap::point3d offset(goal_list[id_exec].pose.orientation.x, goal_list[id_exec].pose.orientation.y, goal_list[id_exec].pose.orientation.z);
-        vector<octomap::point3d> view_point_candidate;
-        // raycast
-        for(double len = 0.3; len < 2.0; len += 0.3){
-          octomap::point3d view_point = center - offset * len;
-          octomap::OcTreeNode* view_node = ocmap->search(view_point);
-          if(view_node == nullptr){
-            continue;
-          }
-          else{
-            if(view_node->getOccupancy() > 0.75){
-              continue;
-            }
-          }
-          bool no_collision = true;
-          // 是否可达
-          for(double x_offset = -0.5; x_offset <= 0.5 && no_collision; x_offset += 0.1){
-            for(double y_offset = -0.5; y_offset <= 0.5 && no_collision; y_offset += 0.1){
-              octomap::point3d check_point(center);
-              check_point.x() = view_point.x() + x_offset;
-              check_point.y() = view_point.y() + y_offset;
-              octomap::OcTreeNode* check_node = ocmap->search(check_point);
-              // 不可达
-              if(check_node != nullptr && check_node->getOccupancy() > 0.75){
-                no_collision = false;
-              }
-            }
-          }
-          if(no_collision){
-            view_point_candidate.push_back(view_point);
-          }
-          else{
-            break;
-          }
-        }
-
-        if(view_point_candidate.empty()){
-          id_exec++;
-        }
-        else{
-          geometry_msgs::PoseStamped goal(goal_list[id_exec]);
-          goal.pose.position.x = (view_point_candidate.begin() + view_point_candidate.size()/2)->x();
-          goal.pose.position.y = (view_point_candidate.begin() + view_point_candidate.size()/2)->y();
-          goal.pose.position.z = (view_point_candidate.begin() + view_point_candidate.size()/2)->z();
-
-          Eigen::Vector3f delta_pose;
-          // WARNING: 此处减去的应该为base_link的pose
-          delta_pose << goal.pose.position.x - cam_o_in_map.point.x,
-          goal.pose.position.y - cam_o_in_map.point.y,
-          goal.pose.position.z - cam_o_in_map.point.z;
-          
-          if(delta_pose.norm() < 1.0){
-            ros::Duration(2.0).sleep();
-            id_exec++;
-          }
-          else{
-            goal_pub.publish(goal);
-          }
-        }
-
-      }
-    }
     
-    // generate view point
-
-    // path
     rate.sleep();
   }
   return 0;

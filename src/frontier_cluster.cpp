@@ -149,3 +149,40 @@ void cluster_visualize(vector<Cluster>& cluster_vec, ros::Publisher& cluster_pub
     }
     cluster_pub.publish(marker_cluster);
 }
+
+geometry_msgs::PoseArray view_point_generate(vector<Cluster>& cluster_vec, octomap::OcTree* ocmap){
+    geometry_msgs::PoseArray view_point_array;
+    view_point_array.header.frame_id = "map";
+    
+    for(int i = 0; i < cluster_vec.size(); i++){
+        octomap::point3d center(cluster_vec[i].center.x(), cluster_vec[i].center.y(), cluster_vec[i].center.z());
+        octomap::point3d normal(cluster_vec[i].normal.x(), cluster_vec[i].normal.y(), 0);
+        for(double offset = 0.3; offset < 2.5; offset += 0.1){
+            octomap::point3d view_point = center - normal * offset;
+            // view point has to be reachable
+            octomap::OcTreeNode* view_node = ocmap->search(view_point);
+            if(view_node == nullptr || view_node->getOccupancy() > 0.6){
+                break;
+            }
+            // there is no obstacle near the view point
+            if(is_next_to_obstacle(ocmap, view_point, 0.8)){
+                continue;
+            }
+            else{
+                geometry_msgs::Pose view_point_pose;
+                view_point_pose.position.x = view_point.x();
+                view_point_pose.position.y = view_point.y();
+                view_point_pose.position.z = view_point.z();
+                tf2::Quaternion quaternion;
+                quaternion.setRPY(0.0, 0.0, atan2(normal.y(), normal.x()));
+                view_point_pose.orientation.w = quaternion.w();
+                view_point_pose.orientation.x = quaternion.x();
+                view_point_pose.orientation.y = quaternion.y();
+                view_point_pose.orientation.z = quaternion.z();
+                view_point_array.poses.push_back(view_point_pose);
+                break;
+            }
+        }
+    }
+    return view_point_array;
+}
