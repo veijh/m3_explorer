@@ -1,0 +1,7 @@
+<launch>
+    <param name="Lkh_Path" value="$(find lkh_ros)/LKH/LKH"/>
+    <node name="lkh_ros" pkg="lkh_ros" type="lkh_ros" respawn="false" output="screen"/>
+
+    <param name="Problem_Path" value="$(find m3_explorer)/tour"/>
+    <node name="m3_explorer" pkg="m3_explorer" type="m3_explorer" respawn="false" output="screen"/>
+</launch>

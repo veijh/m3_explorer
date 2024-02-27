@@ -19,9 +19,11 @@
 #include <random>
 #include "m3_explorer/frontier_detector.h"
 #include "m3_explorer/frontier_cluster.h"
+#include "m3_explorer/path_planning.h"
 #include <mavros_msgs/CommandBool.h>
 #include <mavros_msgs/SetMode.h>
 #include <mavros_msgs/State.h>
+#include "lkh_ros/Solve.h"
 
 using namespace std;
 octomap::OcTree* ocmap;
@@ -193,6 +195,12 @@ int main(int argc, char** argv){
   ros::Publisher cluster_pub = nh.advertise<visualization_msgs::MarkerArray>("cluster", 10);
   // view point display
   ros::Publisher view_point_pub = nh.advertise<geometry_msgs::PoseArray>("view_point", 10);
+  // lkh client
+  ros::ServiceClient lkh_client = nh.serviceClient<lkh_ros::Solve>("lkh_solve");
+  string problem_path;
+  if(!nh.getParam("Problem_Path", problem_path)){
+    rate.sleep();
+  }
   // ego planner input: target pose
   ros::Publisher goal_pub = nh.advertise<geometry_msgs::PoseStamped>("/move_base_simple/goal", 10);
 
@@ -253,18 +261,17 @@ int main(int argc, char** argv){
 
     vector<Cluster> cluster_vec;
     geometry_msgs::PoseArray vp_array;
+    geometry_msgs::PoseArray explore_path;
+    int path_id = 0;
 
     if(!frontiers.empty() && goal_exec == false)
     {
       current_time = ros::Time::now();
-
       //// frontier clustering
       //// input = the set containing all frontier voxels
       //// output = a vector containing all frontier clusters
       cluster_vec = k_mean_cluster(frontiers);
       cluster_visualize(cluster_vec, cluster_pub);
-
-      goal_exec = true;
 
       cout << "frontier clusters generation using time: " << (ros::Time::now() - current_time).toSec()*1000.0 << " ms" << endl;
 
@@ -276,11 +283,33 @@ int main(int argc, char** argv){
       view_point_pub.publish(vp_array);
 
       cout << "view points generation using time: " << (ros::Time::now() - current_time).toSec()*1000.0 << " ms" << endl;
+
+      current_time = ros::Time::now();
+      //// path planning
+      //// input = current pose of uav && a vector containing poses of all view points
+      //// output = a vector containing the sequence of waypoints
+      explore_path = atsp_path(cam_o_in_map, vp_array, lkh_client, problem_path);
+
+      cout << "path planning using time: " << (ros::Time::now() - current_time).toSec()*1000.0 << " ms" << endl;
+
+      goal_exec = true;
     }
 
-
-    //// path planning
-    
+    if(goal_exec){
+      if(path_id >= explore_path.poses.size()){
+        path_id = 0;
+        goal_exec = false;
+      }
+      else{
+        Eigen::Vector2f delta(cam_o_in_map.point.x - explore_path.poses[path_id].position.x, cam_o_in_map.point.y - explore_path.poses[path_id].position.y);
+        if(delta.norm() < 0.5){
+          ros::Duration(2.0).sleep();
+        }
+        else{
+          
+        }
+      }
+    }
     
     rate.sleep();
   }
