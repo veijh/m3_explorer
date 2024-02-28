@@ -86,28 +86,23 @@ geometry_msgs::PoseArray atsp_path(const geometry_msgs::PointStamped& current_po
     tour_file.close();
 
     // check whether the result is reasonable
-    if(node_seq.size() != view_points.poses.size() + 1){
+    if(node_seq.size() != all_node.poses.size()){
         std::cerr << "the result is not reasonable" << std::endl;
         return result;
     }
 
     result.header.frame_id = "map";
-    vector<int>::iterator it = find(node_seq.begin(), node_seq.end(), 1);
-    geometry_msgs::Pose pose_now;
-    pose_now.position.x = current_pose.point.x;
-    pose_now.position.y = current_pose.point.y;
-    pose_now.position.z = current_pose.point.z;
-    result.poses.push_back(pose_now);
+    vector<int>::iterator it = find(node_seq.begin(), node_seq.end(), all_node.poses.size());
 
-    for(int i = 0; i < node_seq.size()-1; i++){
+    for(int i = 0; i < node_seq.size(); i++){
+        int id = *it-1;
+        result.poses.push_back(all_node.poses[id]);
         if(it+1 == node_seq.end()){
             it = node_seq.begin();
         }
         else{
             it++;
         }
-        int id = *it-2;
-        result.poses.push_back(view_points.poses[id]);
     }
     return result;
 }

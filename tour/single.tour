@@ -1,13 +1,11 @@
-NAME : EXPLORATION.0.tour
-COMMENT : Length = 0
-COMMENT : Found by LKH-3 [Keld Helsgaun] Wed Feb 28 03:48:06 2024
+NAME : EXPLORATION.16515.tour
+COMMENT : Length = 16515
+COMMENT : Found by LKH-3 [Keld Helsgaun] Wed Feb 28 05:27:45 2024
 TYPE : TOUR
-DIMENSION : 5
+DIMENSION : 3
 TOUR_SECTION
 1
-3
 2
-5
-4
+3
 -1
 EOF
