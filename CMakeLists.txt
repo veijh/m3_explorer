@@ -21,6 +21,7 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   visualization_msgs
   mavros_msgs
+  lkh_ros
 )
 find_package(Eigen3 REQUIRED)
 
@@ -147,7 +148,7 @@ add_definitions(${EIGEN_DEFINITIONS})
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
-add_executable(${PROJECT_NAME} src/m3_explorer.cpp src/frontier_detector.cpp src/frontier_cluster.cpp)
+add_executable(${PROJECT_NAME} src/m3_explorer.cpp src/frontier_detector.cpp src/frontier_cluster.cpp src/path_planning.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the

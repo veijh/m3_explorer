@@ -1,5 +1,5 @@
 #include "m3_explorer/path_planning.h"
-geometry_msgs::PoseArray atsp_path(const geometry_msgs::PointStamped& current_pose, const geometry_msgs::PoseArray view_points, ros::ServiceClient& lkh_client, const string& problem_path){
+geometry_msgs::PoseArray atsp_path(const geometry_msgs::PointStamped& current_pose, const geometry_msgs::PoseArray& view_points, ros::ServiceClient& lkh_client, const string& problem_path){
     geometry_msgs::PoseArray result;
     string par = problem_path + "/single.par";
     string atsp = problem_path + "/single.atsp";
@@ -27,20 +27,23 @@ geometry_msgs::PoseArray atsp_path(const geometry_msgs::PointStamped& current_po
     atsp_file << "EDGE_WEIGHT_FORMAT: FULL_MATRIX" << endl;
     atsp_file << "EDGE_WEIGHT_SECTION" << endl;
     // weight of edge from i to j
-    for(int i = -1; i < view_points.poses.size(); i++){
-        for(int j = -1; j < view_points.poses.size(); j++){
-            if(j == -1 || i == j){
-                atsp_file << to_string(0) << " ";
+    geometry_msgs::PoseArray all_node(view_points);
+    geometry_msgs::Pose start_node;
+    start_node.orientation.w = 1; start_node.orientation.x = 0; start_node.orientation.y = 0; start_node.orientation.z = 0;
+    start_node.position.x = current_pose.point.x;
+    start_node.position.y = current_pose.point.y;
+    start_node.position.z = current_pose.point.z;
+    all_node.poses.push_back(start_node);
+
+    for(int i = 0; i < all_node.poses.size(); i++){
+        cout << "writing file !!" << endl;
+        for(int j = 0; j < all_node.poses.size(); j++){
+            if(j == all_node.poses.size() - 1 || i == j){
+                atsp_file << 0 << " ";
             }
             else{
-                if(i == -1){
-                    Eigen::Vector2f edge_w(current_pose.point.x - view_points.poses[j].position.x, current_pose.point.y - view_points.poses[j].position.y);
-                    atsp_file << to_string((int)(edge_w.norm()*1000.0)) << " ";
-                }
-                else{
-                    Eigen::Vector2f edge_w(view_points.poses[i].position.x - view_points.poses[j].position.x, view_points.poses[i].position.y - view_points.poses[j].position.y);
-                    atsp_file << to_string((int)(edge_w.norm()*1000.0)) << " ";
-                }
+                Eigen::Vector2f edge_w(all_node.poses[i].position.x - all_node.poses[j].position.x, all_node.poses[i].position.y - all_node.poses[j].position.y);
+                atsp_file << (int)(edge_w.norm()*1000.0) << " ";
             }
         }
         atsp_file << endl;
@@ -96,7 +99,7 @@ geometry_msgs::PoseArray atsp_path(const geometry_msgs::PointStamped& current_po
     pose_now.position.z = current_pose.point.z;
     result.poses.push_back(pose_now);
 
-    for(int i = 0; i < node_seq.size(); i++){
+    for(int i = 0; i < node_seq.size()-1; i++){
         if(it+1 == node_seq.end()){
             it = node_seq.begin();
         }

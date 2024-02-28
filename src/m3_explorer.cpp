@@ -225,6 +225,8 @@ int main(int argc, char** argv){
 
   // switch to offboard mode && takeoff to desired height
   offboard_takeoff(nh, 1.5);
+  geometry_msgs::PoseArray explore_path;
+  int path_id = 0;
 
   while(ros::ok()){
     ros::spinOnce();
@@ -261,8 +263,6 @@ int main(int argc, char** argv){
 
     vector<Cluster> cluster_vec;
     geometry_msgs::PoseArray vp_array;
-    geometry_msgs::PoseArray explore_path;
-    int path_id = 0;
 
     if(!frontiers.empty() && goal_exec == false)
     {
@@ -301,12 +301,16 @@ int main(int argc, char** argv){
         goal_exec = false;
       }
       else{
+        cout << "path_id : " << path_id << endl;
         Eigen::Vector2f delta(cam_o_in_map.point.x - explore_path.poses[path_id].position.x, cam_o_in_map.point.y - explore_path.poses[path_id].position.y);
         if(delta.norm() < 0.5){
-          ros::Duration(2.0).sleep();
+          path_id++;
         }
         else{
-          
+          geometry_msgs::PoseStamped target_pose;
+          target_pose.header.frame_id = "map";
+          target_pose.pose = explore_path.poses[path_id];
+          goal_pub.publish(target_pose);
         }
       }
     }
