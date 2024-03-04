@@ -150,6 +150,10 @@ void cluster_visualize(vector<Cluster>& cluster_vec, ros::Publisher& cluster_pub
     cluster_pub.publish(marker_cluster);
 }
 
+vector<Cluster> dbscan_cluster(set<QuadMesh>& frontiers){
+    
+}
+
 geometry_msgs::PoseArray view_point_generate(vector<Cluster>& cluster_vec, octomap::OcTree* ocmap){
     geometry_msgs::PoseArray view_point_array;
     view_point_array.header.frame_id = "map";

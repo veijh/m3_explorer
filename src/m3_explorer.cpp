@@ -182,7 +182,7 @@ void offboard_takeoff(ros::NodeHandle& nh, const double& height){
 int main(int argc, char** argv){
   ros::init(argc, argv, "m3_explorer");
   ros::NodeHandle nh("");
-  ros::Subscriber octomap_sub = nh.subscribe<octomap_msgs::Octomap>("/uav0/octomap_binary", 1, octomap_cb);
+  ros::Subscriber octomap_sub = nh.subscribe<octomap_msgs::Octomap>("/uav0/octomap_full", 1, octomap_cb);
   double resolution = 0.1, sensor_range = 5.0;
   tf2_ros::Buffer tf_buffer;
   tf2_ros::TransformListener tf_listener(tf_buffer);
@@ -195,6 +195,8 @@ int main(int argc, char** argv){
   ros::Publisher cluster_pub = nh.advertise<visualization_msgs::MarkerArray>("cluster", 10);
   // view point display
   ros::Publisher view_point_pub = nh.advertise<geometry_msgs::PoseArray>("view_point", 10);
+  // path display
+  ros::Publisher history_path_pub = nh.advertise<visualization_msgs::Marker>("history_path", 10);
   // lkh client
   ros::ServiceClient lkh_client = nh.serviceClient<lkh_ros::Solve>("lkh_solve");
   string problem_path;
@@ -220,6 +222,11 @@ int main(int argc, char** argv){
   marker.color = color;
   marker.type = visualization_msgs::Marker::CUBE_LIST;
 
+  visualization_msgs::Marker history_path(marker);
+  history_path.color.r = 0.0; history_path.color.g = 0.0; history_path.color.b = 1.0; history_path.color.a = 1.0;
+  history_path.scale.x = 0.1; history_path.scale.y = 0.1; history_path.scale.z = 0.1; 
+  history_path.type = visualization_msgs::Marker::POINTS;
+
   // frontiers
   set<QuadMesh> frontiers;
 
@@ -243,6 +250,8 @@ int main(int argc, char** argv){
     try {
         // 使用lookupTransform函数查询坐标变换
         tf_buffer.transform(cam_o_in_cam, cam_o_in_map, "map");
+        history_path.points.push_back(cam_o_in_map.point);
+        history_path_pub.publish(history_path);
     }
     catch (tf2::TransformException& ex) {
         ROS_ERROR("Failed to transform point: %s", ex.what());

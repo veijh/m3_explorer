@@ -27,6 +27,7 @@ using namespace std;
 //// output = a vector containing all frontier clusters
 vector<Cluster> k_mean_cluster(set<QuadMesh>& frontiers);
 void cluster_visualize(vector<Cluster>& cluster_vec, ros::Publisher& cluster_pub);
+vector<Cluster> dbscan_cluster(set<QuadMesh>& frontiers);
 
 //// generate view point
 //// input = a vector containing all frontier clusters
