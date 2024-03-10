@@ -4,15 +4,18 @@
 #include <vector>
 #include <queue>
 #include <algorithm>
+#include <Eigen/Dense>
 using namespace std;
 
 class Point
 {
     public:
         Point(){}
+        Point(float _x, float _y, float _z, Eigen::Vector3f _normal) : x(_x), y(_y), z(_z), normal(_normal){}
         float x;
         float y;
         float z;
+        Eigen::Vector3f normal;
         friend bool XSortFunc(Point& a, Point& b);
         friend bool YSortFunc(Point& a, Point& b);
         friend bool ZSortFunc(Point& a, Point& b);
@@ -20,12 +23,18 @@ class Point
         bool operator==(const Point& other);
         bool operator!=(const Point& other);
 };
- 
+
 class KdTree
 {
     public:
         enum SPLIT_DIM {SPLIT_NULL, SPLIT_X, SPLIT_Y, SPLIT_Z};
-        KdTree(){splitD = SPLIT_NULL; splitV = 0; leftTree = nullptr, rightTree = nullptr; isVisited = false;}
+        struct CustomCompare {
+            bool operator()(const std::pair<float, KdTree*>& lhs, const std::pair<float, KdTree*>& rhs) const {
+                return lhs.first < rhs.first;
+            }
+        };
+
+        KdTree(){splitD = SPLIT_NULL; splitV = 0; leftTree = nullptr, rightTree = nullptr;}
         ~KdTree();
         KdTree(Point point, KdTree* leftTree, KdTree* rightTree, SPLIT_DIM splitD, float splitV)
         {
@@ -34,17 +43,14 @@ class KdTree
             this->rightTree = rightTree;
             this->splitD = splitD;
             this->splitV = splitV;
-            isVisited = false;
         }
         Point point;
         SPLIT_DIM splitD;
         float splitV;
-        int depth;
-        bool isVisited;
         KdTree* leftTree;
         KdTree* rightTree;
-        bool isLeftTreeNode(Point point);
-        bool isRightTreeNode(Point point);
+        bool isLeftTreeNode(const Point& point);
+        bool isRightTreeNode(const Point& point);
         void BuildTree(vector<Point>& pointArray, int l, int r);
         void Insert(Point point);
         void Delete(KdTree* parent, Point point);
@@ -54,6 +60,10 @@ class KdTree
         KdTree* GetMinYTreeNode();
         KdTree* GetMaxZTreeNode();
         KdTree* GetMinZTreeNode();
-        friend void GetNearestPoint(KdTree* root, KdTree* parent, Point point, float& minDis, Point& tarPoint);
+        friend void GetNearestPoint(KdTree* node, Point point, float& minDis, Point& tarPoint);
+        friend void GetNearestPoint_Rec(KdTree* node, Point point, float& minDis, Point& tarPoint);
+        friend void GetEpsNbrPoint(KdTree* node, Point point, const float& eps, priority_queue<pair<float, KdTree*>, vector<pair<float, KdTree*>>, CustomCompare>& nbr_queue);
+
 };
+
 #endif

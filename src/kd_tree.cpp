@@ -148,7 +148,7 @@ KdTree* KdTree::GetMinZTreeNode()
     return leftMinNode->point.z < rightMinNode->point.z ? leftMinNode:rightMinNode;
 }
 
-bool KdTree::isLeftTreeNode(Point point)
+bool KdTree::isLeftTreeNode(const Point& point)
 {
     switch (splitD)
     {
@@ -170,7 +170,7 @@ bool KdTree::isLeftTreeNode(Point point)
     return false;
 }
 
-bool KdTree::isRightTreeNode(Point point)
+bool KdTree::isRightTreeNode(const Point& point)
 {
     switch (splitD)
     {
@@ -194,8 +194,8 @@ bool KdTree::isRightTreeNode(Point point)
 
 void KdTree::BuildTree(vector<Point>& pointArray, int l, int r)
 {
-    float sdx, sdy, sdz;
-    float sumx, sumy, sumz;
+    float sdx = 0.0, sdy = 0.0, sdz = 0.0;
+    float sumx = 0.0, sumy = 0.0, sumz = 0.0;
     for(int i = l; i < r; ++i)
     {
         sumx += pointArray[i].x;
@@ -447,8 +447,16 @@ KdTree::~KdTree(){
     }
 }
 
-void GetNearestPoint(KdTree* node, Point point, float& minDis, Point& tarPoint)
-{
+void GetNearestPoint(KdTree* node, Point point, float& minDis, Point& tarPoint){
+    if(node == nullptr){
+        return;
+    }
+    minDis = pow(point.x - node->point.x, 2) + pow(point.y - node->point.y, 2) + pow(point.z - node->point.z, 2);
+    tarPoint = node->point;
+    GetNearestPoint_Rec(node, point, minDis, tarPoint);
+}
+
+void GetNearestPoint_Rec(KdTree* node, Point point, float& minDis, Point& tarPoint){
     if(node == nullptr){
         return;
     }
@@ -488,16 +496,68 @@ void GetNearestPoint(KdTree* node, Point point, float& minDis, Point& tarPoint)
     }
 
     if(go_left){
-        GetNearestPoint(node->leftTree, point, minDis, tarPoint);
+        GetNearestPoint_Rec(node->leftTree, point, minDis, tarPoint);
         if(dis_to_split < minDis){
-            GetNearestPoint(node->rightTree, point, minDis, tarPoint);
+            GetNearestPoint_Rec(node->rightTree, point, minDis, tarPoint);
         }
     }
     else{
-        GetNearestPoint(node->rightTree, point, minDis, tarPoint);
+        GetNearestPoint_Rec(node->rightTree, point, minDis, tarPoint);
         if(dis_to_split < minDis){
-            GetNearestPoint(node->leftTree, point, minDis, tarPoint);
+            GetNearestPoint_Rec(node->leftTree, point, minDis, tarPoint);
         }
     }
 
+}
+
+void GetEpsNbrPoint(KdTree* node, Point point, const float& eps, priority_queue<pair<float, KdTree*>, vector<pair<float, KdTree*>>, KdTree::CustomCompare>& nbr_queue){
+    if(node == nullptr){
+        return;
+    }
+    float dis = pow(point.x - node->point.x, 2) + pow(point.y - node->point.y, 2) + pow(point.z - node->point.z, 2);
+    if(dis < eps * eps){
+        nbr_queue.push(make_pair(dis, node));
+    }
+
+    float dis_to_split = dis;
+    bool go_left = false;
+    switch (node->splitD)
+    {
+    case KdTree::SPLIT_X:
+        if(point.x < node->point.x){
+            go_left = true;
+        }
+        dis_to_split = pow(point.x - node->point.x, 2);
+        break;
+    
+    case KdTree::SPLIT_Y:
+        if(point.y < node->point.y){
+            go_left = true;
+        }
+        dis_to_split = pow(point.y - node->point.y, 2);
+        break;
+
+    case KdTree::SPLIT_Z:
+        if(point.z < node->point.z){
+            go_left = true;
+        }
+        dis_to_split = pow(point.z - node->point.z, 2);
+        break;
+    
+    default:
+        break;
+    }
+
+    if(go_left){
+        GetEpsNbrPoint(node->leftTree, point, eps, nbr_queue);
+        if(dis_to_split < eps * eps){
+            GetEpsNbrPoint(node->rightTree, point, eps, nbr_queue);
+        }
+    }
+    else{
+        GetEpsNbrPoint(node->rightTree, point, eps, nbr_queue);
+        if(dis_to_split < eps * eps){
+            GetEpsNbrPoint(node->leftTree, point, eps, nbr_queue);
+        }
+    }
 }

@@ -150,8 +150,72 @@ void cluster_visualize(vector<Cluster>& cluster_vec, ros::Publisher& cluster_pub
     cluster_pub.publish(marker_cluster);
 }
 
-vector<Cluster> dbscan_cluster(set<QuadMesh>& frontiers){
-    
+vector<Cluster> dbscan_cluster(set<QuadMesh>& frontiers, const float& eps, const int& min_pts){
+    vector<Cluster> clusters;
+
+    vector<Point> point_array;
+    for(auto it = frontiers.begin(); it != frontiers.end(); it++){
+        Eigen::Vector3f normal = {it->normal.x(), it->normal.y(), it->normal.z()};
+        Point p(it->center.x(), it->center.y(), it->center.z(), normal);
+        point_array.push_back(p);
+    }
+
+    // build KD tree from vector
+    KdTree* frontier_kd_tree = new KdTree;
+    frontier_kd_tree->BuildTree(point_array, 0, point_array.size());
+
+    unordered_map<KdTree*, bool> is_node_visited;
+    queue<KdTree*> bfs_q;
+    bfs_q.push(frontier_kd_tree);
+
+    while(!bfs_q.empty()){
+
+        KdTree* node = bfs_q.front();
+        if(node->leftTree) bfs_q.push(node->leftTree);
+        if(node->rightTree) bfs_q.push(node->rightTree);
+        bfs_q.pop();
+
+        if(is_node_visited[node] == false){
+            int count = 0;
+            queue<KdTree*> cluster_q;
+            cluster_q.push(node);
+
+            Cluster cluster_candidate;
+            cluster_candidate.center.setZero();
+            cluster_candidate.normal.setZero();
+            while(!cluster_q.empty()){
+
+                KdTree* cluster_node = cluster_q.front();
+                is_node_visited[cluster_node] = true;
+                priority_queue<pair<float, KdTree*>, vector<pair<float, KdTree*>>, KdTree::CustomCompare> nbr_queue;
+                // kd tree search nearest point within eps
+                GetEpsNbrPoint(frontier_kd_tree, cluster_node->point, eps, nbr_queue);
+                // check this point is core point or not
+                // if it is core point: add all neighbor point to queue
+                if(nbr_queue.size() > min_pts){
+                    count++;
+                    cluster_candidate.center += Eigen::Vector3f(cluster_node->point.x, cluster_node->point.y, cluster_node->point.z);
+                    cluster_candidate.normal += cluster_node->point.normal;
+                    while(!nbr_queue.empty()){
+                        if(is_node_visited[nbr_queue.top().second] == false){
+                            cluster_q.push(nbr_queue.top().second);
+                            is_node_visited[nbr_queue.top().second] = true;
+                        }
+                        nbr_queue.pop();
+                    }
+                }
+                cluster_q.pop();
+            }
+
+            if(count > 0){
+                cluster_candidate.center /= count;
+                cluster_candidate.normal = cluster_candidate.normal.normalized();
+                clusters.push_back(cluster_candidate);
+            }
+        }
+    }
+    cout << "dbscan cluster num :" << clusters.size() << endl;
+    return clusters;
 }
 
 geometry_msgs::PoseArray view_point_generate(vector<Cluster>& cluster_vec, octomap::OcTree* ocmap){

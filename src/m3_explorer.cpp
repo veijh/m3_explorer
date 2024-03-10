@@ -279,7 +279,8 @@ int main(int argc, char** argv){
       //// frontier clustering
       //// input = the set containing all frontier voxels
       //// output = a vector containing all frontier clusters
-      cluster_vec = k_mean_cluster(frontiers);
+      // cluster_vec = k_mean_cluster(frontiers);
+      cluster_vec = dbscan_cluster(frontiers, 0.4, 8);
       cluster_visualize(cluster_vec, cluster_pub);
 
       cout << "frontier clusters generation using time: " << (ros::Time::now() - current_time).toSec()*1000.0 << " ms" << endl;
@@ -297,7 +298,13 @@ int main(int argc, char** argv){
       //// path planning
       //// input = current pose of uav && a vector containing poses of all view points
       //// output = a vector containing the sequence of waypoints
-      explore_path = atsp_path(cam_o_in_map, vp_array, lkh_client, problem_path);
+      if(vp_array.poses.size() > 2){
+        explore_path = atsp_path(cam_o_in_map, vp_array, lkh_client, problem_path);
+      }
+      else if(!vp_array.poses.empty()){
+        explore_path.poses.clear();
+        explore_path.poses.push_back(vp_array.poses[0]);
+      }
 
       cout << "path planning using time: " << (ros::Time::now() - current_time).toSec()*1000.0 << " ms" << endl;
 

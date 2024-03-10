@@ -12,6 +12,7 @@
 #include <geometry_msgs/PoseArray.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include "m3_explorer/frontier_detector.h"
+#include "m3_explorer/kd_tree.h"
 
 #define MAX_ITERATION (1000)
 
@@ -27,7 +28,7 @@ using namespace std;
 //// output = a vector containing all frontier clusters
 vector<Cluster> k_mean_cluster(set<QuadMesh>& frontiers);
 void cluster_visualize(vector<Cluster>& cluster_vec, ros::Publisher& cluster_pub);
-vector<Cluster> dbscan_cluster(set<QuadMesh>& frontiers);
+vector<Cluster> dbscan_cluster(set<QuadMesh>& frontiers, const float& eps, const int& min_pts);
 
 //// generate view point
 //// input = a vector containing all frontier clusters
