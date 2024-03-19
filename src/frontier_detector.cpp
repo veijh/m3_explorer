@@ -14,8 +14,8 @@ void frontier_detect(set<QuadMesh>& frontiers, octomap::OcTree* ocmap, const geo
           continue;
         }
 
-        if(ocmap->search(it->center) != nullptr || is_next_to_obstacle(ocmap, it->center, 0.4)){
-          frontiers.erase(it++);
+        if(ocmap->search(it->center) != nullptr){
+          it = frontiers.erase(it);
         }
         else{
           it++;
@@ -48,7 +48,7 @@ void frontier_detect(set<QuadMesh>& frontiers, octomap::OcTree* ocmap, const geo
         
         // no need to check obstacles' neighbors
         // no need to check the interior of obstacle
-        if(it->getValue() > log(0.6/0.4)){
+        if(is_next_to_obstacle(ocmap, center, 0.2, 0.8)){
           continue;
         }
 
@@ -99,16 +99,38 @@ void frontier_detect(set<QuadMesh>& frontiers, octomap::OcTree* ocmap, const geo
         }
       }
     }
+
+    // remove frontiers near obstacle
+    if(!frontiers.empty() && ocmap != nullptr){
+      auto it = frontiers.begin();
+      while(it != frontiers.end()){
+        if(abs(it->center.x() - cur_pose.point.x) > sensor_range){
+          it++;
+          continue;
+        }
+        if(abs(it->center.y() - cur_pose.point.y) > sensor_range){
+          it++;
+          continue;
+        }
+        if(is_next_to_obstacle(ocmap, it->center, 0.4, 0.8)){
+          it = frontiers.erase(it);
+        }
+        else{
+          it++;
+        }
+      }
+    }
+
 }
 
-bool is_next_to_obstacle(octomap::OcTree* ocmap, const octomap::point3d& point, const double& check_box_size){
+bool is_next_to_obstacle(octomap::OcTree* ocmap, const octomap::point3d& point, const double& check_box_size, const double& occ_trs){
   octomap::point3d check_point(point);
   for(double x_offset = -check_box_size/2.0; x_offset <= check_box_size/2.0; x_offset += 0.05){
     for(double y_offset = -check_box_size/2.0; y_offset <= check_box_size/2.0; y_offset += 0.05){
       check_point.x() = point.x() + x_offset;
       check_point.y() = point.y() + y_offset;
       octomap::OcTreeNode *result = ocmap->search(check_point);
-      if(result != nullptr && result->getOccupancy() > 0.6){
+      if(result != nullptr && result->getOccupancy() > occ_trs){
         return true;
       }
     }
@@ -184,4 +206,47 @@ void frontier_visualize(set<QuadMesh> &frontiers, const double& mesh_thickness, 
   }
 
   frontier_maker_array_pub.publish(frontier_maker_array);
+}
+
+void frontier_normal_visualize(set<QuadMesh> &frontiers, ros::Publisher& frontier_normal_pub){
+  geometry_msgs::PoseArray frontier_normal_array;
+  frontier_normal_array.header.frame_id = "map";
+  geometry_msgs::Pose normal_pose;
+
+  if(!frontiers.empty()){
+    auto it = frontiers.begin();
+    for(int i = 0; i < frontiers.size(); i++){
+      normal_pose.position.x = it->center.x();
+      normal_pose.position.y = it->center.y();
+      normal_pose.position.z = it->center.z();
+
+      tf2::Quaternion q;
+      if(it->normal.x() > 0.5){
+        q.setRPY(0, 0, 0);
+      }
+      if(it->normal.x() < -0.5){
+        q.setRPY(0, 0, M_PI);
+      }
+      if(it->normal.y() > 0.5){
+        q.setRPY(0, 0, M_PI/2);
+      }
+      if(it->normal.y() < -0.5){
+        q.setRPY(0, 0, -M_PI/2);
+      }
+      if(it->normal.z() > 0.5){
+        q.setRPY(0, -M_PI/2, 0);
+      }
+      if(it->normal.z() < -0.5){
+        q.setRPY(0, M_PI/2, 0);
+      }
+      normal_pose.orientation.w = q.w();
+      normal_pose.orientation.x = q.x();
+      normal_pose.orientation.y = q.y();
+      normal_pose.orientation.z = q.z();
+      frontier_normal_array.poses.push_back(normal_pose);
+      it++;
+    }
+  }
+
+  frontier_normal_pub.publish(frontier_normal_array);
 }
