@@ -35,8 +35,8 @@ geometry_msgs::PoseArray atsp_path(const geometry_msgs::PointStamped& current_po
     start_node.position.z = current_pose.point.z;
     all_node.poses.push_back(start_node);
 
+    cout << "writing file !!" << endl;
     for(int i = 0; i < all_node.poses.size(); i++){
-        cout << "writing file !!" << endl;
         for(int j = 0; j < all_node.poses.size(); j++){
             if(j == all_node.poses.size() - 1 || i == j){
                 atsp_file << 0 << " ";
