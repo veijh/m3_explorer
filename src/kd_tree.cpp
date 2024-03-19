@@ -5,17 +5,18 @@ Point Point::operator=(const Point& other)
     this->x = other.x;
     this->y = other.y;
     this->z = other.z;
+    this->normal = other.normal;
     return *this;
 }
- 
+
 bool Point::operator==(const Point& other)
 {
-    return abs(x - other.x) < 1e-5 && abs(y - other.y) < 1e-5 && abs(z - other.z) < 1e-5; 
+    return abs(x - other.x) < 1e-5 && abs(y - other.y) < 1e-5 && abs(z - other.z) < 1e-5 && (normal - other.normal).norm() < 1e-5;
 }
- 
+
 bool Point::operator!=(const Point& other)
 {
-    return abs(x - other.x) > 1e-9 || abs(y - other.y) > 1e-9 || abs(z - other.z) > 1e-9; 
+    return abs(x - other.x) > 1e-5 || abs(y - other.y) > 1e-5 || abs(z - other.z) > 1e-5 || (normal - other.normal).norm() > 1e-5; 
 }
  
 bool XSortFunc(Point& a, Point& b)

@@ -12,6 +12,12 @@ class Point
     public:
         Point(){}
         Point(float _x, float _y, float _z, Eigen::Vector3f _normal) : x(_x), y(_y), z(_z), normal(_normal){}
+        Point(const Point& other){
+            x = other.x;
+            y = other.y;
+            z = other.z;
+            normal = other.normal;
+        }
         float x;
         float y;
         float z;
@@ -34,10 +40,14 @@ class KdTree
             }
         };
 
-        KdTree(){splitD = SPLIT_NULL; splitV = 0; leftTree = nullptr, rightTree = nullptr;}
+        KdTree(){
+            splitD = SPLIT_NULL;
+            splitV = 0;
+            leftTree = nullptr, rightTree = nullptr;
+            point.normal.setZero();
+        }
         ~KdTree();
-        KdTree(Point point, KdTree* leftTree, KdTree* rightTree, SPLIT_DIM splitD, float splitV)
-        {
+        KdTree(Point point, KdTree* leftTree, KdTree* rightTree, SPLIT_DIM splitD, float splitV) {
             this->point = point;
             this->leftTree = leftTree;
             this->rightTree = rightTree;
