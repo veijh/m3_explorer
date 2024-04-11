@@ -149,6 +149,7 @@ add_definitions(${EIGEN_DEFINITIONS})
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
 add_executable(${PROJECT_NAME} src/m3_explorer.cpp src/frontier_detector.cpp src/frontier_cluster.cpp src/path_planning.cpp src/kd_tree.cpp)
+add_executable(analyze src/analyze.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -165,6 +166,10 @@ target_link_libraries(${PROJECT_NAME}
   ${catkin_LIBRARIES}
   ${tf2_LIBRARIES}
   ${tf2_ros_LIBRARIES}
+)
+
+target_link_libraries(analyze
+  ${catkin_LIBRARIES}
 )
 
 #############
