@@ -9,6 +9,7 @@
 #include <Eigen/Dense>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2/LinearMath/Quaternion.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/PointStamped.h>
 #include <geometry_msgs/TransformStamped.h>
@@ -23,62 +24,28 @@
 #include <mavros_msgs/CommandBool.h>
 #include <mavros_msgs/SetMode.h>
 #include <mavros_msgs/State.h>
+#include <nav_msgs/Odometry.h>
+#include <std_msgs/Float32MultiArray.h>
 #include "lkh_ros/Solve.h"
 
-using namespace std;
-octomap::OcTree* ocmap;
+enum CTRL_STATE {VOID = 0, POS_CTRL, YAW_CTRL};
 
+using namespace std;
+
+octomap::OcTree* ocmap;
 void octomap_cb(const octomap_msgs::Octomap::ConstPtr& msg)
 {
   // free memory for old map
   delete ocmap;
   ocmap = dynamic_cast<octomap::OcTree*>(msgToMap(*msg));
+}
 
-  double i = 0.0, j = 0.0, k = 0.0;
-  // ocmap->getMetricMax(i, j, k);
-  // cout << "max: " << i << ", " << j << ", " << k << endl;
-  // ocmap->getMetricMin(i, j, k);
-  // cout << "min: " << i << ", " << j << ", " << k << endl;
-  ocmap->getMetricSize(i, j, k);
-  // cout << "size: " << i << ", " << j << ", " << k << endl << endl;
-
-  // for(octomap::OcTree::tree_iterator it = ocmap->begin_tree(), end = ocmap->end_tree(); it!= end; ++it)
-  // {
-  //   if(it.getSize() > 1.0){
-  //   //manipulate node, e.g.:
-  //   std::cout << "Node center: " << it.getCoordinate() << std::endl;
-  //   std::cout << "Node size: " << it.getSize() << std::endl;
-  //   std::cout << "Node value: " << it->getValue() << std::endl;
-  //   std::cout << "Node depth: " << it.getDepth() << std::endl;
-  //   }
-  // }
-
-  // for(octomap::OcTree::leaf_iterator it = ocmap->begin_leafs(),
-  //      end=ocmap->end_leafs(); it!= end; ++it)
-  // {
-  //   if(it.getSize() > 0.4){
-  //   //manipulate node, e.g.:
-  //   std::cout << "Node center: " << it.getCoordinate() << std::endl;
-  //   std::cout << "Node size: " << it.getSize() << std::endl;
-  //   std::cout << "Node value: " << it->getValue() << std::endl;
-  //   }
-  // }
-
-  // octomap::point3d min(0,0,0);
-  // octomap::point3d max(5,5,5);
-
-  // for(octomap::OcTree::leaf_bbx_iterator it = ocmap->begin_leafs_bbx(min,max),
-  //      end=ocmap->end_leafs_bbx(); it!= end; ++it)
-  // {
-  //   if(it.getSize() > 0.4){
-  //     //manipulate node, e.g.:
-  //     std::cout << "Node center: " << it.getCoordinate() << std::endl;
-  //     std::cout << "Node size: " << it.getSize() << std::endl;
-  //     std::cout << "Node value: " << it->getValue() << std::endl;
-  //     std::cout << "Node depth: " << it.getDepth() << std::endl;
-  //   }
-  // }
-
+float cur_yaw = 0.0;
+void base_link_cb(const nav_msgs::Odometry::ConstPtr& msg){
+  tf2::Quaternion q(msg->pose.pose.orientation.x, msg->pose.pose.orientation.y, msg->pose.pose.orientation.z, msg->pose.pose.orientation.w);
+  double roll, pitch, yaw;
+  tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+  cur_yaw = (float)yaw;
 }
 
 mavros_msgs::State current_state;
@@ -91,6 +58,7 @@ void pos_cb(const geometry_msgs::PoseStamped::ConstPtr& msg){
   cur_pos = *msg;
 }
 
+// switch to OFFBOARD && takeoff to desired height
 void offboard_takeoff(ros::NodeHandle& nh, const double& height){
   ros::Subscriber state_sub = nh.subscribe<mavros_msgs::State>
           ("mavros/state", 10, state_cb);
@@ -182,8 +150,12 @@ void offboard_takeoff(ros::NodeHandle& nh, const double& height){
 int main(int argc, char** argv){
   ros::init(argc, argv, "m3_explorer");
   ros::NodeHandle nh("");
+  // get octomap
   ros::Subscriber octomap_sub = nh.subscribe<octomap_msgs::Octomap>("octomap_full", 1, octomap_cb);
   double resolution = 0.1, sensor_range = 5.0;
+  // get current pose
+  ros::Subscriber base_link_sub = nh.subscribe<nav_msgs::Odometry>("ground_truth/base_link", 1, base_link_cb);
+
   tf2_ros::Buffer tf_buffer;
   tf2_ros::TransformListener tf_listener(tf_buffer);
   ros::Duration(1.0).sleep();  // 等待tf2变换树准备好
@@ -191,8 +163,12 @@ int main(int argc, char** argv){
 
   // frontier voxels display
   ros::Publisher frontier_maker_array_pub = nh.advertise<visualization_msgs::MarkerArray>("frontier", 10);
-  // frontier cluster display
+  // frontier normal display
+  ros::Publisher frontier_normal_pub = nh.advertise<geometry_msgs::PoseArray>("frontier_normal", 10);
+  // cluster center and its normal display
   ros::Publisher cluster_pub = nh.advertise<visualization_msgs::MarkerArray>("cluster", 10);
+  // distinguish diffrent clusters display
+  ros::Publisher cluster_vis_pub = nh.advertise<visualization_msgs::MarkerArray>("cluster_vis", 10);
   // view point display
   ros::Publisher view_point_pub = nh.advertise<geometry_msgs::PoseArray>("view_point", 10);
   // path display
@@ -203,9 +179,12 @@ int main(int argc, char** argv){
   if(!nh.getParam("Problem_Path", problem_path)){
     rate.sleep();
   }
+
   // ego planner input: target pose
   ros::Publisher goal_pub = nh.advertise<geometry_msgs::PoseStamped>("goal", 10);
+  ros::Publisher ctrl_state_pub = nh.advertise<std_msgs::Float32MultiArray>("ctrl_state", 10);
 
+  int ctrl_state = CTRL_STATE::POS_CTRL;
   bool goal_exec = false;
   int id_exec = 0;
   vector<geometry_msgs::PoseStamped> goal_list;
@@ -232,6 +211,9 @@ int main(int argc, char** argv){
 
   // switch to offboard mode && takeoff to desired height
   offboard_takeoff(nh, 1.5);
+
+  ros::Time explore_start = ros::Time::now();
+
   geometry_msgs::PoseArray explore_path;
   int path_id = 0;
 
@@ -262,12 +244,15 @@ int main(int argc, char** argv){
     //// output = a set containing all frontier voxels
 
     ros::Time current_time = ros::Time::now();
+    cout << "Time: " << (current_time - explore_start).toSec() << " s" << endl;
 
     frontier_detect(frontiers, ocmap, cam_o_in_map, sensor_range);
-    frontier_visualize(frontiers, 0.1, frontier_maker_array_pub);
+    frontier_visualize(frontiers, 0.02, frontier_maker_array_pub);
+    frontier_normal_visualize(frontiers, frontier_normal_pub);
+
     
     ros::Duration elapsed_time = ros::Time::now() - current_time;
-    cout << "frontier detect using time: " << elapsed_time.toSec()*1000.0 << " ms" << endl;
+    cout << "frontier detect using time: " << elapsed_time.toSec()*1000.0 << " ms, ";
     cout << "frontier voxel num is : " << frontiers.size() << endl;
 
     vector<Cluster> cluster_vec;
@@ -280,7 +265,7 @@ int main(int argc, char** argv){
       //// input = the set containing all frontier voxels
       //// output = a vector containing all frontier clusters
       // cluster_vec = k_mean_cluster(frontiers);
-      cluster_vec = dbscan_cluster(frontiers, 0.4, 8);
+      cluster_vec = dbscan_cluster(frontiers, 0.4, 8, 8, cluster_vis_pub);
       cluster_visualize(cluster_vec, cluster_pub);
 
       cout << "frontier clusters generation using time: " << (ros::Time::now() - current_time).toSec()*1000.0 << " ms" << endl;
@@ -317,16 +302,55 @@ int main(int argc, char** argv){
         goal_exec = false;
       }
       else{
-        cout << "path_id : " << path_id << endl;
+        cout << "path_id : " << path_id << "/" << explore_path.poses.size()-1 << endl;
         Eigen::Vector2f delta(cam_o_in_map.point.x - explore_path.poses[path_id].position.x, cam_o_in_map.point.y - explore_path.poses[path_id].position.y);
-        if(delta.norm() < 0.5){
+        cout << "distance to target = " << delta.norm() << " m" << endl;
+        octomap::point3d target_point(explore_path.poses[path_id].position.x, explore_path.poses[path_id].position.y, explore_path.poses[path_id].position.z);
+        
+        if(is_next_to_obstacle(ocmap, target_point, 0.8, 0.8)){
           path_id++;
         }
         else{
-          geometry_msgs::PoseStamped target_pose;
-          target_pose.header.frame_id = "map";
-          target_pose.pose = explore_path.poses[path_id];
-          goal_pub.publish(target_pose);
+          switch (ctrl_state){
+            case POS_CTRL: {
+              geometry_msgs::PoseStamped target_pose;
+              target_pose.header.frame_id = "map";
+              target_pose.pose = explore_path.poses[path_id];
+              goal_pub.publish(target_pose);
+
+              std_msgs::Float32MultiArray state_msg;
+              state_msg.data.push_back(0.0);
+              state_msg.data.push_back(0.0);
+              ctrl_state_pub.publish(state_msg);
+
+              if(delta.norm() < 0.2){
+                ctrl_state = CTRL_STATE::YAW_CTRL;
+              }
+              break;
+            }
+            case YAW_CTRL:{
+              // calculate target yaw
+              tf2::Quaternion q(explore_path.poses[path_id].orientation.x,
+              explore_path.poses[path_id].orientation.y, 
+              explore_path.poses[path_id].orientation.z, 
+              explore_path.poses[path_id].orientation.w);
+              double roll, pitch, yaw;
+              tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+              float target_yaw = (float)yaw;
+
+              std_msgs::Float32MultiArray state_msg;
+              state_msg.data.push_back(1.0);
+              state_msg.data.push_back(target_yaw);
+              ctrl_state_pub.publish(state_msg);
+
+              // state transition
+              if(abs(target_yaw - cur_yaw) < 5.0 * M_PI / 180.0){
+                ctrl_state = CTRL_STATE::POS_CTRL;
+                path_id++;
+              }
+              break;
+            }
+          }
         }
       }
     }

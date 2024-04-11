@@ -115,7 +115,7 @@ void cluster_visualize(vector<Cluster>& cluster_vec, ros::Publisher& cluster_pub
     marker_cluster_center.pose.orientation.z = 0.0;
     marker_cluster_center.type = visualization_msgs::Marker::SPHERE_LIST;
     marker_cluster_center.color.a = 1; marker_cluster_center.color.r = 0; marker_cluster_center.color.g = 1; marker_cluster_center.color.b = 0;
-    marker_cluster_center.scale.x = 0.1; marker_cluster_center.scale.y = 0.1; marker_cluster_center.scale.z = 0.1;
+    marker_cluster_center.scale.x = 0.2; marker_cluster_center.scale.y = 0.2; marker_cluster_center.scale.z = 0.2;
 
     for(int i = 0; i < cluster_vec.size(); i++){
         geometry_msgs::Point point;
@@ -150,7 +150,24 @@ void cluster_visualize(vector<Cluster>& cluster_vec, ros::Publisher& cluster_pub
     cluster_pub.publish(marker_cluster);
 }
 
-vector<Cluster> dbscan_cluster(set<QuadMesh>& frontiers, const float& eps, const int& min_pts){
+vector<Cluster> dbscan_cluster(set<QuadMesh>& frontiers, const float& eps, const int& min_pts, const int& min_cluster_pts, ros::Publisher& cluster_vis_pub){
+
+    visualization_msgs::MarkerArray all_frontier;
+
+    visualization_msgs::Marker same_type_frontier;
+    same_type_frontier.header.frame_id = "map";
+    same_type_frontier.id = 0;
+    same_type_frontier.type = visualization_msgs::Marker::CUBE_LIST;
+    same_type_frontier.pose.orientation.w = 1.0;
+    same_type_frontier.pose.orientation.x = 0.0;
+    same_type_frontier.pose.orientation.y = 0.0;
+    same_type_frontier.pose.orientation.z = 0.0;
+    same_type_frontier.scale.x = 0.02; same_type_frontier.scale.y = 0.02; same_type_frontier.scale.z = 0.02;
+
+    random_device seed;                              // 硬件生成随机数种子
+    ranlux48 engine(seed());                         // 利用种子生成随机数引擎
+    uniform_real_distribution<float> distrib(0.0, 1.0); // 设置随机数范围，并为均匀分布
+
     vector<Cluster> clusters;
 
     vector<Point> point_array;
@@ -195,7 +212,14 @@ vector<Cluster> dbscan_cluster(set<QuadMesh>& frontiers, const float& eps, const
                 if(nbr_queue.size() > min_pts){
                     count++;
                     cluster_candidate.center += Eigen::Vector3f(cluster_node->point.x, cluster_node->point.y, cluster_node->point.z);
+                    // cout << "node normal = " << cluster_node->point.normal.x() << ", " << cluster_node->point.normal.y() << ", " << cluster_node->point.normal.z() << endl;
                     cluster_candidate.normal += cluster_node->point.normal;
+
+                    // vis
+                    geometry_msgs::Point fc;
+                    fc.x = cluster_node->point.x; fc.y = cluster_node->point.y; fc.z = cluster_node->point.z;
+                    same_type_frontier.points.push_back(fc);
+
                     while(!nbr_queue.empty()){
                         if(is_node_visited[nbr_queue.top().second] == false){
                             cluster_q.push(nbr_queue.top().second);
@@ -207,13 +231,23 @@ vector<Cluster> dbscan_cluster(set<QuadMesh>& frontiers, const float& eps, const
                 cluster_q.pop();
             }
 
-            if(count > 0){
+            if(count >= min_cluster_pts){
                 cluster_candidate.center /= count;
+                cluster_candidate.normal /= count;
+                cout << "count = " << count << ", norm of normal = " << cluster_candidate.normal.norm() << ", (" << cluster_candidate.normal.x() << ", " << cluster_candidate.normal.y() << ", " << cluster_candidate.normal.z() << ")" << endl;
                 cluster_candidate.normal = cluster_candidate.normal.normalized();
+                cout << "(" << cluster_candidate.normal.x() << ", " << cluster_candidate.normal.y() << ", " << cluster_candidate.normal.z() << ")" << endl;
                 clusters.push_back(cluster_candidate);
+
+                // frontier cluster vis
+                same_type_frontier.color.a = 0.5; same_type_frontier.color.r = distrib(engine); same_type_frontier.color.g = distrib(engine); same_type_frontier.color.b = distrib(engine);
+                all_frontier.markers.push_back(same_type_frontier);
+                same_type_frontier.points.clear();
+                same_type_frontier.id++;
             }
         }
     }
+    cluster_vis_pub.publish(all_frontier);
     cout << "dbscan cluster num :" << clusters.size() << endl;
     return clusters;
 }
@@ -233,7 +267,7 @@ geometry_msgs::PoseArray view_point_generate(vector<Cluster>& cluster_vec, octom
                 break;
             }
             // there is no obstacle near the view point
-            if(is_next_to_obstacle(ocmap, view_point, 0.8)){
+            if(is_next_to_obstacle(ocmap, view_point, 0.8, 0.8)){
                 continue;
             }
             else{

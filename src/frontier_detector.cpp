@@ -48,7 +48,7 @@ void frontier_detect(set<QuadMesh>& frontiers, octomap::OcTree* ocmap, const geo
         
         // no need to check obstacles' neighbors
         // no need to check the interior of obstacle
-        if(is_next_to_obstacle(ocmap, center, 0.2, 0.8)){
+        if(is_next_to_obstacle(ocmap, center, 0.3, 0.8)){
           continue;
         }
 
@@ -112,7 +112,7 @@ void frontier_detect(set<QuadMesh>& frontiers, octomap::OcTree* ocmap, const geo
           it++;
           continue;
         }
-        if(is_next_to_obstacle(ocmap, it->center, 0.4, 0.8)){
+        if(is_next_to_obstacle(ocmap, it->center, 0.4, 0.7)){
           it = frontiers.erase(it);
         }
         else{
