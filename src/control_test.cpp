@@ -3,13 +3,14 @@
 #include <mavros_msgs/State.h>
 #include <mavros_msgs/SetMode.h>
 #include <mavros_msgs/CommandBool.h>
+#include <mavros_msgs/PositionTarget.h>
 #include <math.h>
 
 class CircleTrajectory {
 public:
     CircleTrajectory() {
         state_sub = nh.subscribe<mavros_msgs::State>("/uav0/mavros/state", 10, &CircleTrajectory::state_cb, this);
-        local_pos_pub = nh.advertise<geometry_msgs::PoseStamped>("/uav0/mavros/setpoint_position/local", 10);
+        local_pos_pub = nh.advertise<mavros_msgs::PositionTarget>("/uav0/mavros/setpoint_raw/local", 10);
         arming_client = nh.serviceClient<mavros_msgs::CommandBool>("/uav0/mavros/cmd/arming");
         set_mode_client = nh.serviceClient<mavros_msgs::SetMode>("/uav0/mavros/set_mode");
     }
@@ -19,24 +20,31 @@ public:
     }
 
     void run() {
-        ros::Rate rate(100.0);
+        ros::Publisher sp_pub = nh.advertise<geometry_msgs::PoseStamped>("/uav0/mavros/setpoint", 10);
+
+        ros::Rate rate(50.0);
         while (ros::ok() && !current_state.connected) {
             ros::spinOnce();
             rate.sleep();
         }
 
-        geometry_msgs::PoseStamped pose;
-        pose.header.frame_id = "map";
-        pose.pose.position.x = 0;
-        pose.pose.position.y = 0;
-        pose.pose.position.z = 2;
+        geometry_msgs::PoseStamped sp;
+        sp.header.frame_id = "map";
+        sp.pose.position.z = 2.0;
+        sp.pose.orientation.w = 1.0;
+
+        mavros_msgs::PositionTarget target_pose;
+        target_pose.header.frame_id = "map";
+        target_pose.coordinate_frame = mavros_msgs::PositionTarget::FRAME_LOCAL_NED;
+        target_pose.type_mask = 0;
+        target_pose.position.z = 2.0;
 
         ros::Time last_request = ros::Time::now();
         ros::Time start = ros::Time::now();
 
         //send a few setpoints before starting
         for(int i = 5; ros::ok() && i > 0; --i){
-            local_pos_pub.publish(pose);
+            local_pos_pub.publish(target_pose);
             ros::spinOnce();
             rate.sleep();
         }
@@ -58,10 +66,19 @@ public:
                     last_request = ros::Time::now();
                 }
             }
-            pose.pose.position.x = 2 * cos( 0.6 /2.0 * ros::Time::now().toSec());
-            pose.pose.position.y = 2 * sin( 0.6 /2.0 * ros::Time::now().toSec());
 
-            local_pos_pub.publish(pose);
+            target_pose.header.stamp = sp.header.stamp = ros::Time::now();
+            target_pose.position.x = sp.pose.position.x = 2.0 * cos( 1.0 /2.0 * ros::Time::now().toSec());
+            target_pose.position.y = sp.pose.position.y = 2.0 * sin( 1.0 /2.0 * ros::Time::now().toSec());
+
+            target_pose.velocity.x = 2.0 * 1.0 /2.0 * -sin( 1.0 /2.0 * ros::Time::now().toSec());
+            target_pose.velocity.y = 2.0 * 1.0 /2.0 * cos( 1.0 /2.0 * ros::Time::now().toSec());
+
+            target_pose.acceleration_or_force.x = 2.0 * 1.0 /2.0 * 1.0 /2.0 * -cos( 1.0 /2.0 * ros::Time::now().toSec());
+            target_pose.acceleration_or_force.y = 2.0 * 1.0 /2.0 * 1.0 /2.0 * -sin( 1.0 /2.0 * ros::Time::now().toSec());
+
+            local_pos_pub.publish(target_pose);
+            sp_pub.publish(sp);
 
             ros::spinOnce();
             rate.sleep();
