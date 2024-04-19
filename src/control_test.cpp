@@ -5,6 +5,7 @@
 #include <mavros_msgs/CommandBool.h>
 #include <mavros_msgs/PositionTarget.h>
 #include <math.h>
+#include "m3_explorer/hastar.h"
 
 class CircleTrajectory {
 public:
@@ -98,6 +99,12 @@ private:
 
 int main(int argc, char **argv) {
     ros::init(argc, argv, "circle_trajectory_node");
+
+    Hastar planning;
+    cout << "start planning" << endl;
+    planning.search_path(nullptr, Eigen::Vector3f(0.0, 0.0, 0.0), Eigen::Vector3f(3.0, 2.0, 0.0), 0.0, 0.0, 0.0);
+    cout << "end" << endl;
+
     CircleTrajectory circle_trajectory;
     circle_trajectory.run();
     return 0;

@@ -150,7 +150,7 @@ add_definitions(${EIGEN_DEFINITIONS})
 ## The recommended prefix ensures that target names across packages don't collide
 add_executable(${PROJECT_NAME} src/m3_explorer.cpp src/frontier_detector.cpp src/frontier_cluster.cpp src/path_planning.cpp src/kd_tree.cpp)
 add_executable(analyze src/analyze.cpp)
-add_executable(control_test src/control_test.cpp)
+add_executable(control_test src/control_test.cpp src/hastar)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
