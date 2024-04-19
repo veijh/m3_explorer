@@ -234,9 +234,9 @@ vector<Cluster> dbscan_cluster(set<QuadMesh>& frontiers, const float& eps, const
             if(count >= min_cluster_pts){
                 cluster_candidate.center /= count;
                 cluster_candidate.normal /= count;
-                cout << "count = " << count << ", norm of normal = " << cluster_candidate.normal.norm() << ", (" << cluster_candidate.normal.x() << ", " << cluster_candidate.normal.y() << ", " << cluster_candidate.normal.z() << ")" << endl;
+                // cout << "count = " << count << ", norm of normal = " << cluster_candidate.normal.norm() << ", (" << cluster_candidate.normal.x() << ", " << cluster_candidate.normal.y() << ", " << cluster_candidate.normal.z() << ")" << endl;
                 cluster_candidate.normal = cluster_candidate.normal.normalized();
-                cout << "(" << cluster_candidate.normal.x() << ", " << cluster_candidate.normal.y() << ", " << cluster_candidate.normal.z() << ")" << endl;
+                // cout << "(" << cluster_candidate.normal.x() << ", " << cluster_candidate.normal.y() << ", " << cluster_candidate.normal.z() << ")" << endl;
                 clusters.push_back(cluster_candidate);
 
                 // frontier cluster vis
@@ -259,8 +259,8 @@ geometry_msgs::PoseArray view_point_generate(vector<Cluster>& cluster_vec, octom
     for(int i = 0; i < cluster_vec.size(); i++){
         octomap::point3d center(cluster_vec[i].center.x(), cluster_vec[i].center.y(), cluster_vec[i].center.z());
         octomap::point3d normal(cluster_vec[i].normal.x(), cluster_vec[i].normal.y(), 0);
-        for(double offset = 0.3; offset < 2.5; offset += 0.1){
-            octomap::point3d view_point = center - normal * offset;
+        for(double offset = 0.8; offset < 2.5; offset += 0.1){
+            octomap::point3d view_point = center - normal.normalized() * offset;
             // view point has to be reachable
             octomap::OcTreeNode* view_node = ocmap->search(view_point);
             if(view_node == nullptr || view_node->getOccupancy() > 0.6){
