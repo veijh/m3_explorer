@@ -9,6 +9,7 @@
 #include <Eigen/Dense>
 #include <cmath>
 #include <algorithm>
+#include <string>
 
 using namespace std;
 class PathNode{
@@ -28,17 +29,25 @@ class PathNode{
         PathNode(const float& px, const float& py, const float& pz, const float& _yaw, const float& _vel, const float& _vz)
             :position(Eigen::Vector3f(px, py, pz)), yaw(_yaw), vel(_vel), vz(_vz){};
 
-        // PathNode(const PathNode& node){
-        //     position = node.position;
-        //     yaw = node.yaw;
-        //     vel = node.vel;
-        //     vz = node.vz;
-        //     father_acc = node.father_acc;
-        //     father_id = node.father_id;
-        //     f_score = node.f_score;
-        //     g_score = node.g_score;
-        //     h_score = node.h_score;
-        // }
+        bool operator==(const PathNode& n){
+            int x0 = (int)(position.x()/0.1);
+            int y0 = (int)(position.y()/0.1);
+            int z0 = (int)(position.z()/0.1);
+
+            int x1 = (int)(n.position.x()/0.1);
+            int y1 = (int)(n.position.y()/0.1);
+            int z1 = (int)(n.position.z()/0.1);
+
+            int vx0 = (int)(vel*cos(yaw)/0.1);
+            int vy0 = (int)(vel*sin(yaw)/0.1);
+            int vz0 = (int)(vz/0.1);
+
+            int vx1 = (int)(n.vel*cos(n.yaw)/0.1);
+            int vy1 = (int)(n.vel*sin(n.yaw)/0.1);
+            int vz1 = (int)(n.vz/0.1);
+
+            return x0 == x1 && y0 && y1 && z0 == z1 && vx0 == vx1 && vy0 == vy1 && vz0 == vz1;
+        }
 };
 
 struct NodeCmp{
@@ -49,16 +58,49 @@ struct NodeCmp{
 
 struct MapCmp{
     bool operator()(const PathNode& lhs, const PathNode& rhs){
-        int x0 = (int)lhs.position.x()/0.1;
-        int y0 = (int)lhs.position.y()/0.1;
-        int z0 = (int)lhs.position.z()/0.1;
+        int x0 = (int)(lhs.position.x()/0.1);
+        int y0 = (int)(lhs.position.y()/0.1);
+        int z0 = (int)(lhs.position.z()/0.1);
 
-        int x1 = (int)rhs.position.x()/0.1;
-        int y1 = (int)rhs.position.y()/0.1;
-        int z1 = (int)rhs.position.z()/0.1;
+        int x1 = (int)(rhs.position.x()/0.1);
+        int y1 = (int)(rhs.position.y()/0.1);
+        int z1 = (int)(rhs.position.z()/0.1);
+
+        int vx0 = (int)(lhs.vel*cos(lhs.yaw)/0.1);
+        int vy0 = (int)(lhs.vel*sin(lhs.yaw)/0.1);
+        int vz0 = (int)(lhs.vz/0.1);
+
+        int vx1 = (int)(rhs.vel*cos(rhs.yaw)/0.1);
+        int vy1 = (int)(rhs.vel*sin(rhs.yaw)/0.1);
+        int vz1 = (int)(rhs.vz/0.1);
+
         if(x0 != x1) return x0 < x1;
         if(y0 != y1) return y0 < y1;
-        return z0 < z1;
+        if(z0 != z1) return z0 < z1;
+        if(vx0 != vx1) return vx0 < vx1;
+        if(vy0 != vy1)  return vy0 < vy1;
+        return vz0 < vz1;
+    }
+};
+
+struct NodeHash{
+    size_t operator()(const PathNode& node) const{
+        int x0 = (int)(node.position.x()/0.1);
+        int y0 = (int)(node.position.y()/0.1);
+        int z0 = (int)(node.position.z()/0.1);
+
+        int vx0 = (int)(node.vel*cos(node.yaw)/0.1);
+        int vy0 = (int)(node.vel*sin(node.yaw)/0.1);
+        int vz0 = (int)(node.vz/0.1);
+
+        string key;
+        key += x0 + " ";
+        key += y0 + " ";
+        key += z0 + " ";
+        key += vx0 + " ";
+        key += vy0 + " ";
+        key += vz0;
+        return std::hash<string>()(key);
     }
 };
 

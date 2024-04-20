@@ -4,8 +4,8 @@ const float MAX_VEL = 1.0;
 bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& start_p, const Eigen::Vector3f& end_p, const float& vel, const float& yaw, const float& vz)
 {
     float tau = 0.5;
-    vector<float> acc_t = {-0.5, -0.2, 0, 0.2, 0.5};
-    vector<float> acc_n = {-0.5, -0.2, 0, 0.2, 0.5};
+    vector<float> acc_t = {-1.0, -0.5, 0, 0.5, 1.0};
+    vector<float> acc_n = {-1.0, -0.5, 0, 0.5, 1.0};
     vector<float> acc_z = {0};
 
     priority_queue<PathNode, vector<PathNode>, NodeCmp> hastar_q;
@@ -38,9 +38,9 @@ bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& st
         closed_list.push_back(node);
         node_state[node] = 1;
 
-        cout << (node.position) << endl << endl;
+        // cout << (node.position - end_p).norm() << endl << endl;
 
-        if((node.position - end_p).norm() < 1.0){
+        if((node.position - end_p).norm() < 0.5){
             is_path_found = true;
             cout << "find_path" << endl;
             break;
@@ -59,7 +59,7 @@ bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& st
             next_pos = node.position + vel_start * tau + acc * pow(tau, 2) / 2.0;
             next_vel = vel_end.topRows(2).norm();
             next_vz = vel_end(2);
-            if(next_vel != 0){
+            if(next_vel > 1e-2){
                 next_yaw = atan2(vel_end(1), vel_end(0));
             }
             else{
@@ -80,23 +80,19 @@ bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& st
 
             PathNode next_node(next_pos, next_yaw, next_vel, next_vz);
             // check if node is in open/closed list
-            if(node_state.find(next_node) != node_state.end()){
-                next_node.father_id = count;
-                next_node.g_score = node.g_score + tau;
+            if(node_state.find(next_node) == node_state.end()){
                 node_state[next_node] = 0;
             }
             else{
-                if(node_state[next_node] == 0 && node.g_score + tau < node_g_score[next_node]){
-                    next_node.father_id = count;
-                    next_node.g_score = node.g_score + tau;
-                    node_g_score[next_node] = next_node.g_score;
-                }
-                else{
+                if(node_state[next_node] == 0 && node.g_score + tau > node_g_score[next_node]){
                     continue;
                 }
             }
+            next_node.father_id = count;
             next_node.father_acc = acc;
             next_node.h_score = calc_h_score(next_node.position, end_p);
+            next_node.g_score = node.g_score + tau;
+            node_g_score[next_node] = next_node.g_score;
             next_node.f_score = next_node.g_score + next_node.h_score;
             hastar_q.push(next_node);
 
@@ -105,13 +101,15 @@ bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& st
     }
 
     if(is_path_found){
-        int id = closed_list[closed_list.size()-1].father_id;
-        path.push_back(closed_list[closed_list.size()-1]);
-        while(id != -1){
-            path.push_back(closed_list[id]);
-            id = closed_list[id].father_id;
-        }
-        reverse(path.begin(), path.end());
+        // path.clear();
+        // int id = closed_list[closed_list.size()-1].father_id;
+        // path.push_back(closed_list[closed_list.size()-1]);
+        // while(id != -1){
+        //     path.push_back(closed_list[id]);
+        //     id = closed_list[id].father_id;
+        // }
+        // reverse(path.begin(), path.end());
+        cout << "ok" << endl;
         return true;
     }
     else{
