@@ -10,6 +10,7 @@
 #include <cmath>
 #include <algorithm>
 #include <string>
+#include <unordered_map>
 
 using namespace std;
 class PathNode{
@@ -29,7 +30,7 @@ class PathNode{
         PathNode(const float& px, const float& py, const float& pz, const float& _yaw, const float& _vel, const float& _vz)
             :position(Eigen::Vector3f(px, py, pz)), yaw(_yaw), vel(_vel), vz(_vz){};
 
-        bool operator==(const PathNode& n){
+        bool operator==(const PathNode& n) const{
             int x0 = (int)(position.x()/0.1);
             int y0 = (int)(position.y()/0.1);
             int z0 = (int)(position.z()/0.1);
@@ -85,22 +86,14 @@ struct MapCmp{
 
 struct NodeHash{
     size_t operator()(const PathNode& node) const{
-        int x0 = (int)(node.position.x()/0.1);
-        int y0 = (int)(node.position.y()/0.1);
-        int z0 = (int)(node.position.z()/0.1);
+        int x0 = (int)(node.position.x()/0.1) + 300;
+        int y0 = (int)(node.position.y()/0.1) + 300;
 
-        int vx0 = (int)(node.vel*cos(node.yaw)/0.1);
-        int vy0 = (int)(node.vel*sin(node.yaw)/0.1);
-        int vz0 = (int)(node.vz/0.1);
+        int vx0 = (int)(node.vel*cos(node.yaw)/0.1) + 15;
+        int vy0 = (int)(node.vel*sin(node.yaw)/0.1) + 15;
 
-        string key;
-        key += x0 + " ";
-        key += y0 + " ";
-        key += z0 + " ";
-        key += vx0 + " ";
-        key += vy0 + " ";
-        key += vz0;
-        return std::hash<string>()(key);
+        int hash_num = x0 * 400 * 400 * 20 + y0 * 400 * 20 + vx0 * 20 + vy0;
+        return static_cast<size_t>(hash_num);
     }
 };
 

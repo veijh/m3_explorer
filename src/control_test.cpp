@@ -102,16 +102,16 @@ int main(int argc, char **argv) {
 
     Hastar planning;
     cout << "start planning" << endl;
-    planning.search_path(nullptr, Eigen::Vector3f(0.0, 0.0, 0.0), Eigen::Vector3f(1.0, 3.0, 0.0), 0.0, 0.0, 0.0);
+    // planning.search_path(nullptr, Eigen::Vector3f(0.0, 0.0, 0.0), Eigen::Vector3f(1.0, 3.0, 0.0), 0.0, 0.0, 0.0);
 
-    // for(int i = 0; i < 50; i++){
-    //     for(int j = 0; j < 50; j++){
-    //         float x = 1.0 + 0.2*i;
-    //         float y = 1.0 + 0.2*j;
-    //         cout << x << ", " << y << " ";
-    //         planning.search_path(nullptr, Eigen::Vector3f(0.0, 0.0, 0.0), Eigen::Vector3f(x, y, 0.0), 0.0, 0.0, 0.0);
-    //     }
-    // }
+    for(int i = 0; i < 50; i++){
+        for(int j = 0; j < 50; j++){
+            float x = 1.0 + 0.2*i;
+            float y = 1.0 + 0.2*j;
+            cout << x << ", " << y << " ";
+            planning.search_path(nullptr, Eigen::Vector3f(0.0, 0.0, 0.0), Eigen::Vector3f(x, y, 0.0), 0.0, 0.0, 0.0);
+        }
+    }
     cout << "end" << endl;
 
     CircleTrajectory circle_trajectory;

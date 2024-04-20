@@ -13,8 +13,8 @@ bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& st
     // size of closed_list, maybe faster than closed_list.size()
     int count = 0;
     // state: 0 -> open; 1 -> closed
-    map<PathNode, int, MapCmp> node_state;
-    map<PathNode, float, MapCmp> node_g_score;
+    unordered_map<PathNode, int, NodeHash> node_state;
+    unordered_map<PathNode, float, NodeHash> node_g_score;
 
     PathNode root(start_p, yaw, vel, vz);
     root.father_id = -1;
