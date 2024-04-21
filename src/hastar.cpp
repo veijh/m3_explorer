@@ -39,6 +39,7 @@ bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& st
         node_state[node] = 1;
 
         // cout << (node.position - end_p).norm() << endl << endl;
+        // cout << (node.position) << node.vel << endl << endl;
 
         if((node.position - end_p).norm() < 0.5){
             is_path_found = true;
@@ -51,13 +52,13 @@ bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& st
         float next_yaw, next_vel, next_vz;
         for(int i = 0; i < acc_t.size(); i++){ for(int j = 0; j < acc_n.size(); j++){ for(int k = 0; k < acc_z.size(); k++){
             Eigen::Vector3f acc = {
-            acc_t[i] * (float)cos(yaw) + acc_n[j] * (float)cos(yaw + M_PI/2.0),
-            acc_t[i] * (float)sin(yaw) + acc_n[j] * (float)sin(yaw + M_PI/2.0),
+            acc_t[i] * (float)cos(node.yaw) + acc_n[j] * (float)cos(node.yaw + M_PI/2.0),
+            acc_t[i] * (float)sin(node.yaw) + acc_n[j] * (float)sin(node.yaw + M_PI/2.0),
             acc_z[k]};
-            Eigen::Vector3f vel_start = {node.vel*cos(yaw), node.vel*sin(yaw), node.vz};
+            Eigen::Vector3f vel_start = {node.vel*cos(node.yaw), node.vel*sin(node.yaw), node.vz};
             Eigen::Vector3f vel_end = vel_start + acc * tau;
             next_pos = node.position + vel_start * tau + acc * pow(tau, 2) / 2.0;
-            next_vel = vel_end.topRows(2).norm();
+            next_vel = sqrt(vel_end(0) * vel_end(0) + vel_end(1) * vel_end(1));
             next_vz = vel_end(2);
             if(next_vel > 1e-2){
                 next_yaw = atan2(vel_end(1), vel_end(0));
@@ -67,7 +68,7 @@ bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& st
             }
 
             // check max vel constraint
-            if(next_vel * next_vel + next_vz * next_vz > MAX_VEL * MAX_VEL){
+            if(vel_end.norm() > MAX_VEL){
                 continue;
             }
 

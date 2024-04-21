@@ -33,21 +33,17 @@ class PathNode{
         bool operator==(const PathNode& n) const{
             int x0 = (int)(position.x()/0.1);
             int y0 = (int)(position.y()/0.1);
-            int z0 = (int)(position.z()/0.1);
 
             int x1 = (int)(n.position.x()/0.1);
             int y1 = (int)(n.position.y()/0.1);
-            int z1 = (int)(n.position.z()/0.1);
 
             int vx0 = (int)(vel*cos(yaw)/0.1);
             int vy0 = (int)(vel*sin(yaw)/0.1);
-            int vz0 = (int)(vz/0.1);
 
             int vx1 = (int)(n.vel*cos(n.yaw)/0.1);
             int vy1 = (int)(n.vel*sin(n.yaw)/0.1);
-            int vz1 = (int)(n.vz/0.1);
 
-            return x0 == x1 && y0 && y1 && z0 == z1 && vx0 == vx1 && vy0 == vy1 && vz0 == vz1;
+            return x0 == x1 && y0 && y1 && vx0 == vx1 && vy0 == vy1;
         }
 };
 
@@ -86,11 +82,11 @@ struct MapCmp{
 
 struct NodeHash{
     size_t operator()(const PathNode& node) const{
-        int x0 = (int)(node.position.x()/0.1) + 300;
-        int y0 = (int)(node.position.y()/0.1) + 300;
+        int x0 = (int)(node.position.x()/0.1) + 200;
+        int y0 = (int)(node.position.y()/0.1) + 200;
 
-        int vx0 = (int)(node.vel*cos(node.yaw)/0.1) + 15;
-        int vy0 = (int)(node.vel*sin(node.yaw)/0.1) + 15;
+        int vx0 = (int)(node.vel*cos(node.yaw)/0.1) + 10;
+        int vy0 = (int)(node.vel*sin(node.yaw)/0.1) + 10;
 
         int hash_num = x0 * 400 * 400 * 20 + y0 * 400 * 20 + vx0 * 20 + vy0;
         return static_cast<size_t>(hash_num);
