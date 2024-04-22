@@ -23,7 +23,12 @@ public:
     void run() {
         ros::Publisher sp_pub = nh.advertise<geometry_msgs::PoseStamped>("/uav0/mavros/setpoint", 10);
 
-        ros::Rate rate(50.0);
+        Hastar planning;
+        cout << "start planning" << endl;
+        planning.search_path(nullptr, Eigen::Vector3f(0.0, 0.0, 2.0), Eigen::Vector3f(10.0, 2.0, 2.0), 0.0, 0.0, 0.0);
+        cout << "end" << endl;
+
+        ros::Rate rate(20.0);
         while (ros::ok() && !current_state.connected) {
             ros::spinOnce();
             rate.sleep();
@@ -52,6 +57,7 @@ public:
 
         offb_set_mode.request.custom_mode = "OFFBOARD";
         arm_cmd.request.value = true;
+        int count = 0;
 
         while (ros::ok()) {
             if (current_state.mode != "OFFBOARD" && (ros::Time::now() - last_request > ros::Duration(5.0))) {
@@ -68,15 +74,32 @@ public:
                 }
             }
 
+            // target_pose.header.stamp = sp.header.stamp = ros::Time::now();
+            // target_pose.position.x = sp.pose.position.x = 2.0 * cos( 1.0 /2.0 * ros::Time::now().toSec());
+            // target_pose.position.y = sp.pose.position.y = 2.0 * sin( 1.0 /2.0 * ros::Time::now().toSec());
+
+            // target_pose.velocity.x = 2.0 * 1.0 /2.0 * -sin( 1.0 /2.0 * ros::Time::now().toSec());
+            // target_pose.velocity.y = 2.0 * 1.0 /2.0 * cos( 1.0 /2.0 * ros::Time::now().toSec());
+
+            // target_pose.acceleration_or_force.x = 2.0 * 1.0 /2.0 * 1.0 /2.0 * -cos( 1.0 /2.0 * ros::Time::now().toSec());
+            // target_pose.acceleration_or_force.y = 2.0 * 1.0 /2.0 * 1.0 /2.0 * -sin( 1.0 /2.0 * ros::Time::now().toSec());
+
             target_pose.header.stamp = sp.header.stamp = ros::Time::now();
-            target_pose.position.x = sp.pose.position.x = 2.0 * cos( 1.0 /2.0 * ros::Time::now().toSec());
-            target_pose.position.y = sp.pose.position.y = 2.0 * sin( 1.0 /2.0 * ros::Time::now().toSec());
+            target_pose.position.x = sp.pose.position.x = planning.traj[count].pos.x();
+            target_pose.position.y = sp.pose.position.y = planning.traj[count].pos.y();
+            target_pose.position.z = sp.pose.position.z = planning.traj[count].pos.z();
 
-            target_pose.velocity.x = 2.0 * 1.0 /2.0 * -sin( 1.0 /2.0 * ros::Time::now().toSec());
-            target_pose.velocity.y = 2.0 * 1.0 /2.0 * cos( 1.0 /2.0 * ros::Time::now().toSec());
+            target_pose.velocity.x = planning.traj[count].vel.x();
+            target_pose.velocity.y = planning.traj[count].vel.y();
+            target_pose.velocity.z = planning.traj[count].vel.z();
 
-            target_pose.acceleration_or_force.x = 2.0 * 1.0 /2.0 * 1.0 /2.0 * -cos( 1.0 /2.0 * ros::Time::now().toSec());
-            target_pose.acceleration_or_force.y = 2.0 * 1.0 /2.0 * 1.0 /2.0 * -sin( 1.0 /2.0 * ros::Time::now().toSec());
+            target_pose.acceleration_or_force.x = planning.traj[count].acc.x();
+            target_pose.acceleration_or_force.y = planning.traj[count].acc.y();
+            target_pose.acceleration_or_force.z = planning.traj[count].acc.z();
+
+            target_pose.yaw = planning.traj[count].yaw;
+            
+            if(current_state.armed && count < planning.traj.size() -1) count++;
 
             local_pos_pub.publish(target_pose);
             sp_pub.publish(sp);
@@ -99,20 +122,6 @@ private:
 
 int main(int argc, char **argv) {
     ros::init(argc, argv, "circle_trajectory_node");
-
-    Hastar planning;
-    cout << "start planning" << endl;
-    // planning.search_path(nullptr, Eigen::Vector3f(0.0, 0.0, 0.0), Eigen::Vector3f(1.0, 3.0, 0.0), 0.0, 0.0, 0.0);
-
-    for(int i = 0; i < 50; i++){
-        for(int j = 0; j < 50; j++){
-            float x = 1.0 + 0.2*i;
-            float y = 1.0 + 0.2*j;
-            cout << x << ", " << y << " ";
-            planning.search_path(nullptr, Eigen::Vector3f(0.0, 0.0, 0.0), Eigen::Vector3f(x, y, 0.0), 0.0, 0.0, 0.0);
-        }
-    }
-    cout << "end" << endl;
 
     CircleTrajectory circle_trajectory;
     circle_trajectory.run();

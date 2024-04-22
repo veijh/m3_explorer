@@ -3,7 +3,6 @@ const float MAX_VEL = 1.0;
 
 bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& start_p, const Eigen::Vector3f& end_p, const float& vel, const float& yaw, const float& vz)
 {
-    float tau = 0.5;
     vector<float> acc_t = {-1.0, -0.5, 0, 0.5, 1.0};
     vector<float> acc_n = {-1.0, -0.5, 0, 0.5, 1.0};
     vector<float> acc_z = {0};
@@ -13,8 +12,12 @@ bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& st
     // size of closed_list, maybe faster than closed_list.size()
     int count = 0;
     // state: 0 -> open; 1 -> closed
-    unordered_map<PathNode, int, NodeHash> node_state;
-    unordered_map<PathNode, float, NodeHash> node_g_score;
+
+    // unordered_map<PathNode, int, NodeHash> node_state;
+    // unordered_map<PathNode, float, NodeHash> node_g_score;
+
+    map<PathNode, int, MapCmp> node_state;
+    map<PathNode, float, MapCmp> node_g_score;
 
     PathNode root(start_p, yaw, vel, vz);
     root.father_id = -1;
@@ -41,9 +44,10 @@ bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& st
         // cout << (node.position - end_p).norm() << endl << endl;
         // cout << (node.position) << node.vel << endl << endl;
 
-        if((node.position - end_p).norm() < 0.5){
+        // 终点处应当约束速度为0,此处可以用庞特里亚金求解
+        if((node.position - end_p).norm() < 0.1 && node.vel < 0.1){
             is_path_found = true;
-            cout << "find_path" << endl;
+            cout << "[Hastar] find_path !!!" << endl;
             break;
         }
 
@@ -58,7 +62,7 @@ bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& st
             Eigen::Vector3f vel_start = {node.vel*cos(node.yaw), node.vel*sin(node.yaw), node.vz};
             Eigen::Vector3f vel_end = vel_start + acc * tau;
             next_pos = node.position + vel_start * tau + acc * pow(tau, 2) / 2.0;
-            next_vel = sqrt(vel_end(0) * vel_end(0) + vel_end(1) * vel_end(1));
+            next_vel = vel_end.topRows(2).norm();
             next_vz = vel_end(2);
             if(next_vel > 1e-2){
                 next_yaw = atan2(vel_end(1), vel_end(0));
@@ -102,19 +106,20 @@ bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& st
     }
 
     if(is_path_found){
-        // path.clear();
-        // int id = closed_list[closed_list.size()-1].father_id;
-        // path.push_back(closed_list[closed_list.size()-1]);
-        // while(id != -1){
-        //     path.push_back(closed_list[id]);
-        //     id = closed_list[id].father_id;
-        // }
-        // reverse(path.begin(), path.end());
-        cout << "ok" << endl;
+        path.clear();
+        int id = closed_list[closed_list.size()-1].father_id;
+        path.push_back(closed_list[closed_list.size()-1]);
+        while(id != -1){
+            path.push_back(closed_list[id]);
+            id = closed_list[id].father_id;
+        }
+        reverse(path.begin(), path.end());
+        cout << "[Hastar] waypoint generated!! waypoint num: " << path.size() << endl;
+        trajectory_generate();
         return true;
     }
     else{
-        cout << "no path" << endl;
+        cout << "[Hastar] no path" << endl;
         return false;
     }
 }
@@ -149,5 +154,32 @@ float Hastar::calc_h_score(const Eigen::Vector3f& start_p, const Eigen::Vector3f
 
 bool Hastar::is_path_valid(const octomap::OcTree* ocmap, const Eigen::Vector3f& cur_pos, const Eigen::Vector3f& next_pos)
 {
+    return true;
+}
+
+bool Hastar::trajectory_generate(){
+    traj.clear();
+    for(int i = 0; i < path.size() - 1; i++){
+        Eigen::Vector3f vel_start = {path[i].vel*cos(path[i].yaw), path[i].vel*sin(path[i].yaw), path[i].vz};
+        for(float time = 0.0; time < tau; time += traj_sample){
+            Traj traj_point;
+            traj_point.acc = path[i+1].father_acc;
+            traj_point.vel = vel_start + path[i+1].father_acc * time;
+            traj_point.pos = path[i].position + vel_start * time + path[i+1].father_acc * pow(time, 2) / 2.0;
+            if(traj_point.vel.topRows(2).norm() > 1e-2){
+                traj_point.yaw = atan2(traj_point.vel(1), traj_point.vel(0));
+            }
+            else{
+                traj_point.yaw = path[i].yaw;
+            }
+            traj.push_back(traj_point);
+        }
+    }
+    Traj traj_point;
+    traj_point.acc = Eigen::Vector3f::Zero();
+    traj_point.vel = Eigen::Vector3f::Zero();
+    traj_point.pos = path.back().position;
+    traj.push_back(traj_point);
+    cout << "[Hastar] Traj generate OK!! traj point num: " << traj.size() << endl;
     return true;
 }

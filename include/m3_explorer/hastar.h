@@ -93,10 +93,22 @@ struct NodeHash{
     }
 };
 
+class Traj{
+    public:
+        Eigen::Vector3f pos;
+        Eigen::Vector3f vel;
+        Eigen::Vector3f acc;
+        float yaw;
+        float yaw_rate;
+};
+
 class Hastar{
     private:
+        bool trajectory_generate();
     public:
-        vector<Eigen::Matrix3f> traj;
+        float tau = 0.5;
+        float traj_sample = 0.05;
+        vector<Traj> traj;
         vector<PathNode> path;
         bool search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& start_p, const Eigen::Vector3f& end_p, const float& vel, const float& yaw, const float& vz);
         float calc_h_score(const Eigen::Vector3f& start_p, const Eigen::Vector3f& end_p);
