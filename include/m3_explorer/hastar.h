@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <string>
 #include <unordered_map>
+#include <functional>
 
 using namespace std;
 class PathNode{
@@ -82,14 +83,27 @@ struct MapCmp{
 
 struct NodeHash{
     size_t operator()(const PathNode& node) const{
-        int x0 = (int)(node.position.x()/0.1) + 200;
-        int y0 = (int)(node.position.y()/0.1) + 200;
+        // (x,y) max_range: [-100, 100), signed 11 bit
+        // z max_range: [-5, 5), signed 10 bit
+        // (vx,vy,vz) max_range: [-1.0, 1.0), signed 8 bit
+        // key = x  y   z   vx  vy  vz
+        // bit = 55-45 44-34 33-24 23-16 15-8 7-0
+        long long x0 = (long long)(node.position.x()/0.1) & 0x7FF;
+        x0 <<= 45;
+        long long y0 = (long long)(node.position.y()/0.1) & 0x7FF;
+        y0 <<= 34;
+        long long z0 = (long long)(node.position.z()/0.1) & 0x3FF;
+        z0 <<= 24;
 
-        int vx0 = (int)(node.vel*cos(node.yaw)/0.1) + 10;
-        int vy0 = (int)(node.vel*sin(node.yaw)/0.1) + 10;
+        long long vx0 = (long long)(node.vel*cos(node.yaw)/0.1) & 0xFF;
+        vx0 <<= 16;
+        long long vy0 = (long long)(node.vel*sin(node.yaw)/0.1) & 0xFF;
+        vy0 <<= 8;
+        long long vz0 = (long long)(node.vz/0.1) & 0xFF;
+        vz0 <<= 0;
 
-        int hash_num = x0 * 400 * 400 * 20 + y0 * 400 * 20 + vx0 * 20 + vy0;
-        return static_cast<size_t>(hash_num);
+        long long key = x0 | y0 | z0 | vx0 | vy0 | vz0;
+        return hash<long long>()(key);
     }
 };
 

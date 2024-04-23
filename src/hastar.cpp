@@ -3,8 +3,8 @@ const float MAX_VEL = 1.0;
 
 bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& start_p, const Eigen::Vector3f& end_p, const float& vel, const float& yaw, const float& vz)
 {
-    vector<float> acc_t = {-1.0, -0.5, 0, 0.5, 1.0};
-    vector<float> acc_n = {-1.0, -0.5, 0, 0.5, 1.0};
+    vector<float> acc_t = {-1.0, -2.0, 0, 2.0, 1.0};
+    vector<float> acc_n = {-1.0, -2.0, 0, 2.0, 1.0};
     vector<float> acc_z = {0};
 
     priority_queue<PathNode, vector<PathNode>, NodeCmp> hastar_q;
@@ -45,7 +45,8 @@ bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& st
         // cout << (node.position) << node.vel << endl << endl;
 
         // 终点处应当约束速度为0,此处可以用庞特里亚金求解
-        if((node.position - end_p).norm() < 0.1 && node.vel < 0.1){
+        // if((node.position - end_p).norm() < 0.1 && node.vel < 0.1){
+        if((node.position - end_p).norm() < 0.5){
             is_path_found = true;
             cout << "[Hastar] find_path !!!" << endl;
             break;
@@ -107,6 +108,12 @@ bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& st
 
     if(is_path_found){
         path.clear();
+
+        float end_yaw = atan2(end_p.y() - closed_list[closed_list.size()-1].position.y(),
+        end_p.x() - closed_list[closed_list.size()-1].position.x());
+        PathNode end(end_p, end_yaw, 0.0, 0.0);
+        path.push_back(end);
+
         int id = closed_list[closed_list.size()-1].father_id;
         path.push_back(closed_list[closed_list.size()-1]);
         while(id != -1){
@@ -129,33 +136,37 @@ float Hastar::calc_h_score(const Eigen::Vector3f& start_p, const Eigen::Vector3f
     return (end_p-start_p).norm() / MAX_VEL;
 }
 
-// bool Hastar::is_path_valid(const octomap::OcTree* ocmap, const Eigen::Vector3f& cur_pos, const Eigen::Vector3f& next_pos)
-// {
-//     float bbx_x0 = min(cur_pos.x(), next_pos.x()) - 0.25;
-//     float bbx_x1 = max(cur_pos.x(), next_pos.x()) + 0.25;
-//     float bbx_y0 = min(cur_pos.y(), next_pos.y()) - 0.25;
-//     float bbx_y1 = max(cur_pos.y(), next_pos.y()) + 0.25;
-//     float bbx_z0 = min(cur_pos.z(), next_pos.z()) - 0.1;
-//     float bbx_z1 = max(cur_pos.z(), next_pos.z()) + 0.1;
-
-//     for(float check_x = bbx_x0; check_x <= bbx_x1; check_x += 0.1){
-//         for(float check_y = bbx_y0; check_y <= bbx_y1; check_y += 0.1){
-//             for(float check_z = bbx_z0; check_z <= bbx_z1; check_z += 0.1){
-//                 octomap::point3d check(check_x, check_y, check_z);
-//                 octomap::OcTreeNode* oc_node = ocmap->search(check);
-//                 if(oc_node != nullptr && ocmap->isNodeOccupied(oc_node)){
-//                     return false;
-//                 }
-//             }
-//         }
-//     }
-//     return true;
-// }
-
 bool Hastar::is_path_valid(const octomap::OcTree* ocmap, const Eigen::Vector3f& cur_pos, const Eigen::Vector3f& next_pos)
 {
+    octomap::point3d next_pos_check(next_pos.x(), next_pos.y(), next_pos.z());
+    octomap::OcTreeNode* oc_node = ocmap->search(next_pos_check);
+    if(oc_node == nullptr) return false;
+
+    float bbx_x0 = min(cur_pos.x(), next_pos.x()) - 0.3;
+    float bbx_x1 = max(cur_pos.x(), next_pos.x()) + 0.3;
+    float bbx_y0 = min(cur_pos.y(), next_pos.y()) - 0.3;
+    float bbx_y1 = max(cur_pos.y(), next_pos.y()) + 0.3;
+    float bbx_z0 = min(cur_pos.z(), next_pos.z()) - 0.1;
+    float bbx_z1 = max(cur_pos.z(), next_pos.z()) + 0.1;
+
+    for(float check_x = bbx_x0; check_x <= bbx_x1; check_x += 0.1){
+        for(float check_y = bbx_y0; check_y <= bbx_y1; check_y += 0.1){
+            for(float check_z = bbx_z0; check_z <= bbx_z1; check_z += 0.1){
+                octomap::point3d check(check_x, check_y, check_z);
+                octomap::OcTreeNode* oc_node = ocmap->search(check);
+                if(oc_node != nullptr && ocmap->isNodeOccupied(oc_node)){
+                    return false;
+                }
+            }
+        }
+    }
     return true;
 }
+
+// bool Hastar::is_path_valid(const octomap::OcTree* ocmap, const Eigen::Vector3f& cur_pos, const Eigen::Vector3f& next_pos)
+// {
+//     return true;
+// }
 
 bool Hastar::trajectory_generate(){
     traj.clear();

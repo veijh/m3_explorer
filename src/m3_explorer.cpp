@@ -21,6 +21,8 @@
 #include "m3_explorer/frontier_detector.h"
 #include "m3_explorer/frontier_cluster.h"
 #include "m3_explorer/path_planning.h"
+#include "m3_explorer/hastar.h"
+#include "m3_explorer/Traj.h"
 #include <mavros_msgs/CommandBool.h>
 #include <mavros_msgs/SetMode.h>
 #include <mavros_msgs/State.h>
@@ -29,6 +31,10 @@
 #include "lkh_ros/Solve.h"
 
 enum CTRL_STATE {VOID = 0, POS_CTRL, YAW_CTRL};
+enum PLAN_FSM {WAIT = 0, PLAN, EXEC};
+
+Hastar planning;
+PLAN_FSM state = PLAN_FSM::PLAN;
 
 using namespace std;
 
@@ -173,6 +179,9 @@ int main(int argc, char** argv){
   ros::Publisher view_point_pub = nh.advertise<geometry_msgs::PoseArray>("view_point", 10);
   // path display
   ros::Publisher history_path_pub = nh.advertise<visualization_msgs::Marker>("history_path", 10);
+  // traj pub
+  ros::Publisher traj_pub = nh.advertise<m3_explorer::Traj>("traj", 10);
+
   // lkh client
   ros::ServiceClient lkh_client = nh.serviceClient<lkh_ros::Solve>("lkh_solve");
   string problem_path;
@@ -307,52 +316,78 @@ int main(int argc, char** argv){
         cout << "path_id : " << path_id << "/" << explore_path.poses.size()-1 << endl;
         Eigen::Vector2f delta(cam_o_in_map.point.x - explore_path.poses[path_id].position.x, cam_o_in_map.point.y - explore_path.poses[path_id].position.y);
         cout << "distance to target = " << delta.norm() << " m" << endl;
-        octomap::point3d target_point(explore_path.poses[path_id].position.x, explore_path.poses[path_id].position.y, explore_path.poses[path_id].position.z);
+        octomap::point3d target_point(explore_path.poses[path_id].position.x, explore_path.poses[path_id].position.y, 1.5);
         
-        if(is_next_to_obstacle(ocmap, target_point, 0.8, 0.8)){
+        // calculate target yaw
+        tf2::Quaternion q(explore_path.poses[path_id].orientation.x,
+        explore_path.poses[path_id].orientation.y,
+        explore_path.poses[path_id].orientation.z,
+        explore_path.poses[path_id].orientation.w);
+        double roll, pitch, yaw;
+        tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+        float target_yaw = (float)yaw;
+
+        if(is_next_to_obstacle(ocmap, target_point, 0.8, 0.8) || delta.norm() < 0.2){
           path_id++;
+          state = PLAN_FSM::PLAN;
         }
         else{
-          switch (ctrl_state){
-            case POS_CTRL: {
-              geometry_msgs::PoseStamped target_pose;
-              target_pose.header.frame_id = "map";
-              target_pose.pose = explore_path.poses[path_id];
-              goal_pub.publish(target_pose);
 
-              std_msgs::Float32MultiArray state_msg;
-              state_msg.data.push_back(0.0);
-              state_msg.data.push_back(0.0);
-              ctrl_state_pub.publish(state_msg);
+          switch (state)
+          {
+          case PLAN_FSM::PLAN:
+            {
+              cout << "Searching Path" << endl;
+              // Hybrid A* search path
+              bool is_planned = planning.search_path(ocmap,
+              Eigen::Vector3f(cam_o_in_map.point.x, cam_o_in_map.point.y, 1.5),
+              Eigen::Vector3f(explore_path.poses[path_id].position.x, explore_path.poses[path_id].position.y, explore_path.poses[path_id].position.z),
+              0.0, cur_yaw, 0.0);
 
-              if(delta.norm() < 0.2){
-                ctrl_state = CTRL_STATE::YAW_CTRL;
+              if(is_planned){
+                // send traj
+                m3_explorer::Traj send_traj;
+                mavros_msgs::PositionTarget target_pose;
+                target_pose.header.frame_id = "map";
+                target_pose.header.stamp = ros::Time::now();
+                target_pose.coordinate_frame = mavros_msgs::PositionTarget::FRAME_LOCAL_NED; // actually redundant
+                target_pose.type_mask = mavros_msgs::PositionTarget::IGNORE_YAW_RATE; // actually redundant
+                for(int i = 0; i < planning.traj.size(); i++){
+                  target_pose.position.x = planning.traj[i].pos.x();
+                  target_pose.position.y = planning.traj[i].pos.y();
+                  target_pose.position.z = planning.traj[i].pos.z();
+
+                  target_pose.velocity.x = planning.traj[i].vel.x();
+                  target_pose.velocity.y = planning.traj[i].vel.y();
+                  target_pose.velocity.z = planning.traj[i].vel.z();
+
+                  target_pose.acceleration_or_force.x = planning.traj[i].acc.x();
+                  target_pose.acceleration_or_force.y = planning.traj[i].acc.y();
+                  target_pose.acceleration_or_force.z = planning.traj[i].acc.z();
+
+                  target_pose.yaw = planning.traj[i].yaw;
+                  send_traj.traj.push_back(target_pose);
+                }
+
+                target_pose.yaw = target_yaw;
+                send_traj.traj.push_back(target_pose);
+
+                traj_pub.publish(send_traj);
               }
+              state = PLAN_FSM::EXEC;
               break;
             }
-            case YAW_CTRL:{
-              // calculate target yaw
-              tf2::Quaternion q(explore_path.poses[path_id].orientation.x,
-              explore_path.poses[path_id].orientation.y, 
-              explore_path.poses[path_id].orientation.z, 
-              explore_path.poses[path_id].orientation.w);
-              double roll, pitch, yaw;
-              tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
-              float target_yaw = (float)yaw;
-
-              std_msgs::Float32MultiArray state_msg;
-              state_msg.data.push_back(1.0);
-              state_msg.data.push_back(target_yaw);
-              ctrl_state_pub.publish(state_msg);
-
-              // state transition
-              if(abs(target_yaw - cur_yaw) < 5.0 * M_PI / 180.0){
-                ctrl_state = CTRL_STATE::POS_CTRL;
+          
+          case PLAN_FSM::EXEC:
+            {
+              if(delta.norm() < 0.2 && abs(target_yaw - cur_yaw) < 5.0 * M_PI / 180.0){
                 path_id++;
+                state = PLAN_FSM::PLAN;
               }
               break;
             }
           }
+
         }
       }
     }

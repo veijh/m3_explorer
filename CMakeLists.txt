@@ -22,6 +22,7 @@ find_package(catkin REQUIRED COMPONENTS
   visualization_msgs
   mavros_msgs
   lkh_ros
+  message_generation
 )
 find_package(Eigen3 REQUIRED)
 
@@ -59,11 +60,10 @@ find_package(Eigen3 REQUIRED)
 ##   * add every package in MSG_DEP_SET to generate_messages(DEPENDENCIES ...)
 
 ## Generate messages in the 'msg' folder
-# add_message_files(
-#   FILES
-#   Message1.msg
-#   Message2.msg
-# )
+add_message_files(
+  FILES
+  Traj.msg
+)
 
 ## Generate services in the 'srv' folder
 # add_service_files(
@@ -80,10 +80,11 @@ find_package(Eigen3 REQUIRED)
 # )
 
 ## Generate added messages and services with any dependencies listed here
-# generate_messages(
-#   DEPENDENCIES
-#   std_msgs
-# )
+generate_messages(
+  DEPENDENCIES
+  std_msgs
+  mavros_msgs
+)
 
 ################################################
 ## Declare ROS dynamic reconfigure parameters ##
@@ -148,9 +149,11 @@ add_definitions(${EIGEN_DEFINITIONS})
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
-add_executable(${PROJECT_NAME} src/m3_explorer.cpp src/frontier_detector.cpp src/frontier_cluster.cpp src/path_planning.cpp src/kd_tree.cpp)
+add_executable(${PROJECT_NAME} src/m3_explorer.cpp src/frontier_detector.cpp src/frontier_cluster.cpp src/path_planning.cpp src/kd_tree.cpp src/hastar.cpp)
 add_executable(analyze src/analyze.cpp)
-add_executable(control_test src/control_test.cpp src/hastar)
+add_executable(control_test src/control_test.cpp src/hastar.cpp)
+add_executable(mavros_ctrl src/mavros_ctrl.cpp)
+
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -174,6 +177,10 @@ target_link_libraries(analyze
 )
 
 target_link_libraries(control_test
+  ${catkin_LIBRARIES}
+)
+
+target_link_libraries(mavros_ctrl
   ${catkin_LIBRARIES}
 )
 
