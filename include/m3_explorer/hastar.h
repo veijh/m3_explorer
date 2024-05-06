@@ -48,7 +48,7 @@ class PathNode{
             int vx1 = (int)(n.vel*cos(n.yaw)/0.1);
             int vy1 = (int)(n.vel*sin(n.yaw)/0.1);
 
-            return x0 == x1 && y0 && y1 && vx0 == vx1 && vy0 == vy1;
+            return x0 == x1 && y0 == y1 && vx0 == vx1 && vy0 == vy1;
         }
 };
 
