@@ -26,6 +26,10 @@ class PathNode{
         int father_id;
         float f_score, g_score, h_score;
 
+        PathNode(){
+            position = Eigen::Vector3f::Zero();
+            father_acc = Eigen::Vector3f::Zero();
+        }
         PathNode(const Eigen::Vector3f& _position, const float& _yaw, const float& _vel, const float& _vz)
             :position(_position), yaw(_yaw), vel(_vel), vz(_vz){};
         PathNode(const float& px, const float& py, const float& pz, const float& _yaw, const float& _vel, const float& _vz)
@@ -120,7 +124,7 @@ class Hastar{
     private:
         bool trajectory_generate();
     public:
-        float tau = 0.5;
+        float tau = 1.0;
         float traj_sample = 0.05;
         vector<Traj> traj;
         vector<PathNode> path;

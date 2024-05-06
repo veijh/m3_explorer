@@ -3,8 +3,8 @@ const float MAX_VEL = 1.0;
 
 bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& start_p, const Eigen::Vector3f& end_p, const float& vel, const float& yaw, const float& vz)
 {
-    vector<float> acc_t = {-1.0, -2.0, 0, 2.0, 1.0};
-    vector<float> acc_n = {-1.0, -2.0, 0, 2.0, 1.0};
+    vector<float> acc_t = {-1.0, -0.5, 0, 0.5, 1.0};
+    vector<float> acc_n = {-1.0, -0.5, 0, 0.5, 1.0};
     vector<float> acc_z = {0};
 
     priority_queue<PathNode, vector<PathNode>, NodeCmp> hastar_q;
@@ -38,15 +38,16 @@ bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& st
         if(node_state[node] == 1){
             continue;
         }
-        closed_list.push_back(node);
+        // closed_list[count] = node;
+        closed_list.emplace_back(node);
         node_state[node] = 1;
 
         // cout << (node.position - end_p).norm() << endl << endl;
         // cout << (node.position) << node.vel << endl << endl;
 
         // 终点处应当约束速度为0,此处可以用庞特里亚金求解
-        // if((node.position - end_p).norm() < 0.1 && node.vel < 0.1){
-        if((node.position - end_p).norm() < 0.5){
+        if((node.position - end_p).norm() < 0.2 && node.vel < 0.2){
+        // if((node.position - end_p).norm() < 0.2){
             is_path_found = true;
             cout << "[Hastar] find_path !!!" << endl;
             break;
@@ -109,13 +110,13 @@ bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& st
     if(is_path_found){
         path.clear();
 
-        float end_yaw = atan2(end_p.y() - closed_list[closed_list.size()-1].position.y(),
-        end_p.x() - closed_list[closed_list.size()-1].position.x());
+        float end_yaw = atan2(end_p.y() - closed_list[count].position.y(),
+        end_p.x() - closed_list[count].position.x());
         PathNode end(end_p, end_yaw, 0.0, 0.0);
         path.push_back(end);
 
-        int id = closed_list[closed_list.size()-1].father_id;
-        path.push_back(closed_list[closed_list.size()-1]);
+        int id = closed_list[count].father_id;
+        path.push_back(closed_list[count]);
         while(id != -1){
             path.push_back(closed_list[id]);
             id = closed_list[id].father_id;
