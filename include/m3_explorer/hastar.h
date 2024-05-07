@@ -14,27 +14,30 @@
 #include <functional>
 
 using namespace std;
+const double kDiv = 12.0 / 2.0;
+
 class PathNode{
     private:
 
     public:
         Eigen::Vector3f position;
-        float yaw, vel;
-        float vz;
+        // yaw [-PI, PI]
+        float yaw;
 
-        Eigen::Vector3f father_acc;
+        // father_yaw + father_yaw_offset = yaw
+        float father_yaw_offset;
         int father_id;
         float f_score, g_score, h_score;
 
         PathNode(){
             position = Eigen::Vector3f::Zero();
-            father_acc = Eigen::Vector3f::Zero();
         }
-        PathNode(const Eigen::Vector3f& _position, const float& _yaw, const float& _vel, const float& _vz)
-            :position(_position), yaw(_yaw), vel(_vel), vz(_vz){};
-        PathNode(const float& px, const float& py, const float& pz, const float& _yaw, const float& _vel, const float& _vz)
-            :position(Eigen::Vector3f(px, py, pz)), yaw(_yaw), vel(_vel), vz(_vz){};
+        PathNode(const Eigen::Vector3f& _position, const float& _yaw)
+            :position(_position), yaw(_yaw){};
+        PathNode(const float& px, const float& py, const float& pz, const float& _yaw)
+            :position(Eigen::Vector3f(px, py, pz)), yaw(_yaw){};
 
+        // 用于unordered_map
         bool operator==(const PathNode& n) const{
             int x0 = (int)(position.x()/0.1);
             int y0 = (int)(position.y()/0.1);
@@ -42,22 +45,22 @@ class PathNode{
             int x1 = (int)(n.position.x()/0.1);
             int y1 = (int)(n.position.y()/0.1);
 
-            int vx0 = (int)(vel*cos(yaw)/0.1);
-            int vy0 = (int)(vel*sin(yaw)/0.1);
+            // 偏航角离散为12个部分。由于+-12表示同一角度，因此实际可能有13个取值。
+            int yaw0 = (int)(kDiv * yaw / M_PI);
+            int yaw1 = (int)(kDiv * n.yaw / M_PI);
 
-            int vx1 = (int)(n.vel*cos(n.yaw)/0.1);
-            int vy1 = (int)(n.vel*sin(n.yaw)/0.1);
-
-            return x0 == x1 && y0 && y1 && vx0 == vx1 && vy0 == vy1;
+            return x0 == x1 && y0 == y1 && yaw0 == yaw1;
         }
 };
 
+// 用于优先队列
 struct NodeCmp{
     bool operator()(const PathNode& lhs, const PathNode& rhs){
         return lhs.f_score > rhs.f_score;
     }
 };
 
+// 用于map
 struct MapCmp{
     bool operator()(const PathNode& lhs, const PathNode& rhs){
         int x0 = (int)(lhs.position.x()/0.1);
@@ -68,46 +71,36 @@ struct MapCmp{
         int y1 = (int)(rhs.position.y()/0.1);
         int z1 = (int)(rhs.position.z()/0.1);
 
-        int vx0 = (int)(lhs.vel*cos(lhs.yaw)/0.1);
-        int vy0 = (int)(lhs.vel*sin(lhs.yaw)/0.1);
-        int vz0 = (int)(lhs.vz/0.1);
-
-        int vx1 = (int)(rhs.vel*cos(rhs.yaw)/0.1);
-        int vy1 = (int)(rhs.vel*sin(rhs.yaw)/0.1);
-        int vz1 = (int)(rhs.vz/0.1);
+        int yaw0 = (int)(kDiv * lhs.yaw / M_PI);
+        int yaw1 = (int)(kDiv * rhs.yaw / M_PI);
 
         if(x0 != x1) return x0 < x1;
         if(y0 != y1) return y0 < y1;
         if(z0 != z1) return z0 < z1;
-        if(vx0 != vx1) return vx0 < vx1;
-        if(vy0 != vy1)  return vy0 < vy1;
-        return vz0 < vz1;
+        return yaw0 < yaw1;
     }
 };
 
+// 用于unordered_map
 struct NodeHash{
     size_t operator()(const PathNode& node) const{
-        // (x,y) max_range: [-100, 100), signed 11 bit
-        // z max_range: [-5, 5), signed 10 bit
-        // (vx,vy,vz) max_range: [-1.0, 1.0), signed 8 bit
-        // key = x  y   z   vx  vy  vz
-        // bit = 55-45 44-34 33-24 23-16 15-8 7-0
-        long long x0 = (long long)(node.position.x()/0.1) & 0x7FF;
-        x0 <<= 45;
-        long long y0 = (long long)(node.position.y()/0.1) & 0x7FF;
-        y0 <<= 34;
-        long long z0 = (long long)(node.position.z()/0.1) & 0x3FF;
-        z0 <<= 24;
+        // (x,y) max_range: [-100, 100], signed 10 bit
+        // z max_range: [-5, 5], signed 7 bit
+        // yaw max_range: [-12, 12], signed 5 bit
+        // key = x  y   z   yaw
+        // bit =  31-22   21-12   11-5    4-0
+        int x0 = (int)(node.position.x()/0.1) & 0x3FF;
+        x0 <<= 22;
+        int y0 = (int)(node.position.y()/0.1) & 0x3FF;
+        y0 <<= 12;
+        int z0 = (int)(node.position.z()/0.1) & 0x7F;
+        z0 <<= 5;
 
-        long long vx0 = (long long)(node.vel*cos(node.yaw)/0.1) & 0xFF;
-        vx0 <<= 16;
-        long long vy0 = (long long)(node.vel*sin(node.yaw)/0.1) & 0xFF;
-        vy0 <<= 8;
-        long long vz0 = (long long)(node.vz/0.1) & 0xFF;
-        vz0 <<= 0;
+        int yaw0 = (int)(kDiv * node.yaw / M_PI) & 0x1F;
+        yaw0 <<= 0;
 
-        long long key = x0 | y0 | z0 | vx0 | vy0 | vz0;
-        return hash<long long>()(key);
+        int key = x0 | y0 | z0 | yaw0;
+        return hash<int>()(key);
     }
 };
 
@@ -128,7 +121,7 @@ class Hastar{
         float traj_sample = 0.05;
         vector<Traj> traj;
         vector<PathNode> path;
-        bool search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& start_p, const Eigen::Vector3f& end_p, const float& vel, const float& yaw, const float& vz);
+        bool search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& start_p, const Eigen::Vector3f& end_p, const float& yaw);
         float calc_h_score(const Eigen::Vector3f& start_p, const Eigen::Vector3f& end_p);
         bool is_path_valid(const octomap::OcTree* ocmap, const Eigen::Vector3f& cur_pos, const Eigen::Vector3f& next_pos);
 };

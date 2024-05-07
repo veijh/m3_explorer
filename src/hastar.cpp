@@ -1,11 +1,9 @@
 #include "m3_explorer/hastar.h"
 const float MAX_VEL = 1.0;
 
-bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& start_p, const Eigen::Vector3f& end_p, const float& vel, const float& yaw, const float& vz)
+bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& start_p, const Eigen::Vector3f& end_p, const float& yaw)
 {
-    vector<float> acc_t = {-1.0, -0.5, 0, 0.5, 1.0};
-    vector<float> acc_n = {-1.0, -0.5, 0, 0.5, 1.0};
-    vector<float> acc_z = {0};
+    vector<float> yaw_offset = {-0.6*M_PI, -0.3*M_PI, 0.0, 0.3*M_PI, 0.6*M_PI};
 
     priority_queue<PathNode, vector<PathNode>, NodeCmp> hastar_q;
     vector<PathNode> closed_list;
@@ -19,7 +17,7 @@ bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& st
     map<PathNode, int, MapCmp> node_state;
     map<PathNode, float, MapCmp> node_g_score;
 
-    PathNode root(start_p, yaw, vel, vz);
+    PathNode root(start_p, yaw);
     root.father_id = -1;
     root.g_score = 0.0;
     root.h_score = calc_h_score(root.position, end_p);
@@ -46,7 +44,7 @@ bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& st
         // cout << (node.position) << node.vel << endl << endl;
 
         // 终点处应当约束速度为0,此处可以用庞特里亚金求解
-        if((node.position - end_p).norm() < 0.2 && node.vel < 0.2){
+        if((node.position - end_p).norm() < 0.2){
         // if((node.position - end_p).norm() < 0.2){
             is_path_found = true;
             cout << "[Hastar] find_path !!!" << endl;
@@ -55,7 +53,20 @@ bool Hastar::search_path(const octomap::OcTree* ocmap, const Eigen::Vector3f& st
 
         // expansion
         Eigen::Vector3f next_pos;
-        float next_yaw, next_vel, next_vz;
+        float next_yaw;
+        for (int i = 0; i < yaw_offset.size(); ++i) {
+            // 保证yaw在[-pi, pi]之间
+            next_yaw = atan2(sin(node.yaw + yaw_offset[i]), cos(node.yaw + yaw_offset[i]));
+            if (yaw_offset[i] == 0){
+                Eigen::Vector3f start_vel = {MAX_VEL * cos(node.yaw), MAX_VEL * sin(node.yaw), 0};
+                next_pos = node.position + start_vel * tau;
+            }
+            else{
+                float rad = MAX_VEL * tau / yaw_offset[i];
+                float std_x = rad * sin(yaw_offset[]);
+            }
+        }
+
         for(int i = 0; i < acc_t.size(); i++){ for(int j = 0; j < acc_n.size(); j++){ for(int k = 0; k < acc_z.size(); k++){
             Eigen::Vector3f acc = {
             acc_t[i] * (float)cos(node.yaw) + acc_n[j] * (float)cos(node.yaw + M_PI/2.0),
