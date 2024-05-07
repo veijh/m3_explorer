@@ -52,7 +52,7 @@ int main(int argc, char **argv) {
 
     target_pose.header.frame_id = "map";
     target_pose.coordinate_frame = mavros_msgs::PositionTarget::FRAME_LOCAL_NED;
-    target_pose.type_mask = mavros_msgs::PositionTarget::IGNORE_YAW_RATE;
+    target_pose.type_mask = 0b100111111000;
     target_pose.position.z = 1.5;
     target_pose.position.x = NAN;
     target_pose.position.y = NAN;

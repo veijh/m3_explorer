@@ -25,7 +25,7 @@ public:
 
         Hastar planning;
         cout << "start planning" << endl;
-        planning.search_path(nullptr, Eigen::Vector3f(0.0, 0.0, 2.0), Eigen::Vector3f(2.0, 10.0, 2.0), 0.0, 0.0, 0.0);
+        planning.search_path(nullptr, Eigen::Vector3f(0.0, 0.0, 2.0), Eigen::Vector3f(2.0, 10.0, 2.0), 0.0);
         cout << "end" << endl;
 
         ros::Rate rate(20.0);
