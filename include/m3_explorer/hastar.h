@@ -118,7 +118,7 @@ private:
   bool trajectory_generate();
 
 public:
-  float tau = 0.5;
+  float tau = 0.2;
   float traj_sample = 0.05;
   vector<Traj> traj;
   vector<PathNode> path;

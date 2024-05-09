@@ -364,8 +364,19 @@ int main(int argc, char **argv) {
                                 1.5),
                 Eigen::Vector3f(explore_path.poses[path_id].position.x,
                                 explore_path.poses[path_id].position.y,
-                                explore_path.poses[path_id].position.z),
+                                1.5),
                 cur_yaw);
+
+            if(is_planned == false){
+              is_planned = planning.search_path(
+                ocmap,
+                Eigen::Vector3f(cam_o_in_map.point.x - 0.4 * cos(cur_yaw), cam_o_in_map.point.y - 0.4 * sin(cur_yaw),
+                                1.5),
+                Eigen::Vector3f(explore_path.poses[path_id].position.x,
+                                explore_path.poses[path_id].position.y,
+                                1.5),
+                cur_yaw);
+            }
 
             if (is_planned) {
               // send traj
@@ -393,6 +404,7 @@ int main(int argc, char **argv) {
                 target_pose.acceleration_or_force.z = planning.traj[i].acc.z();
 
                 target_pose.yaw = planning.traj[i].yaw;
+                target_pose.yaw_rate = planning.traj[i].yaw_rate;
                 send_traj.traj.push_back(target_pose);
               }
 
@@ -400,8 +412,8 @@ int main(int argc, char **argv) {
               send_traj.traj.push_back(target_pose);
 
               traj_pub.publish(send_traj);
+              state = PLAN_FSM::EXEC;
             }
-            state = PLAN_FSM::EXEC;
             break;
           }
 

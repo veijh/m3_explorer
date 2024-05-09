@@ -1,11 +1,12 @@
 #include "m3_explorer/hastar.h"
-const float MAX_VEL = 1.0;
+const float MAX_VEL = 0.5;
 
 bool Hastar::search_path(const octomap::OcTree *ocmap,
                          const Eigen::Vector3f &start_p,
                          const Eigen::Vector3f &end_p, const float &yaw) {
-  vector<float> yaw_offset = {-0.6 * M_PI, -0.3 * M_PI, 0.0, 0.3 * M_PI,
-                              0.6 * M_PI};
+  vector<float> yaw_offset = {-0.15 * M_PI, -0.1 * M_PI,
+                              -0.5 * M_PI, 0.0,          0.5 * M_PI,
+                              0.1 * M_PI,  0.15 * M_PI};
 
   priority_queue<PathNode, vector<PathNode>, NodeCmp> hastar_q;
   vector<PathNode> closed_list;
@@ -141,10 +142,10 @@ bool Hastar::is_path_valid(const octomap::OcTree *ocmap,
   if (oc_node == nullptr)
     return false;
 
-  float bbx_x0 = min(cur_pos.x(), next_pos.x()) - 0.3;
-  float bbx_x1 = max(cur_pos.x(), next_pos.x()) + 0.3;
-  float bbx_y0 = min(cur_pos.y(), next_pos.y()) - 0.3;
-  float bbx_y1 = max(cur_pos.y(), next_pos.y()) + 0.3;
+  float bbx_x0 = min(cur_pos.x(), next_pos.x()) - 0.4;
+  float bbx_x1 = max(cur_pos.x(), next_pos.x()) + 0.4;
+  float bbx_y0 = min(cur_pos.y(), next_pos.y()) - 0.4;
+  float bbx_y1 = max(cur_pos.y(), next_pos.y()) + 0.4;
   float bbx_z0 = min(cur_pos.z(), next_pos.z()) - 0.1;
   float bbx_z1 = max(cur_pos.z(), next_pos.z()) + 0.1;
 
@@ -190,7 +191,7 @@ bool Hastar::trajectory_generate() {
                                sin(path[i].yaw) * std_x + cos(path[i].yaw) * std_y,
                                0.0);
         traj_point.pos = path[i].position + offset;
-        float new_yaw = traj_point.yaw + (path[i+1].father_yaw_offset > 0 ? 1.0 : -1.0) * M_PI / 2.0;
+        float new_yaw = traj_point.yaw + M_PI / 2.0;
         traj_point.acc << MAX_VEL * MAX_VEL / rad * cos(new_yaw), MAX_VEL * MAX_VEL / rad * sin(new_yaw), 0.0;
         traj_point.yaw_rate = path[i+1].father_yaw_offset / tau;
       }
