@@ -325,7 +325,7 @@ int main(int argc, char **argv) {
     }
 
     if (goal_exec) {
-      if (path_id >= explore_path.poses.size()) {
+      if (path_id >= explore_path.poses.size() || path_id > 1) {
         path_id = 0;
         goal_exec = false;
       } else {
