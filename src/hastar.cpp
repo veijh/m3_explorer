@@ -1,12 +1,21 @@
 #include "m3_explorer/hastar.h"
+#include <algorithm>
+#include <cmath>
+#include <functional>
+#include <geometry_msgs/PoseStamped.h>
+#include <map>
+#include <memory>
+#include <queue>
+#include <string>
+#include <unordered_map>
+
 const float MAX_VEL = 0.5;
 
 bool Hastar::search_path(const octomap::OcTree *ocmap,
                          const Eigen::Vector3f &start_p,
                          const Eigen::Vector3f &end_p, const float &yaw) {
-  vector<float> yaw_offset = {-0.15 * M_PI, -0.1 * M_PI,
-                              -0.5 * M_PI, 0.0,          0.5 * M_PI,
-                              0.1 * M_PI,  0.15 * M_PI};
+  vector<float> yaw_offset = {-0.15 * M_PI, -0.1 * M_PI, -0.5 * M_PI, 0.0,
+                              0.5 * M_PI,   0.1 * M_PI,  0.15 * M_PI};
 
   priority_queue<PathNode, vector<PathNode>, NodeCmp> hastar_q;
   vector<PathNode> closed_list;
@@ -174,26 +183,28 @@ bool Hastar::trajectory_generate() {
   for (int i = 0; i < path.size() - 1; i++) {
     for (float time = 0.0; time < tau; time += traj_sample) {
       Traj traj_point;
-      traj_point.yaw = path[i].yaw + path[i+1].father_yaw_offset * time / tau;
-      traj_point.vel << MAX_VEL * cos(traj_point.yaw), MAX_VEL * sin(traj_point.yaw), 0.0;
-      if (path[i+1].father_yaw_offset == 0) {
+      traj_point.yaw = path[i].yaw + path[i + 1].father_yaw_offset * time / tau;
+      traj_point.vel << MAX_VEL * cos(traj_point.yaw),
+          MAX_VEL * sin(traj_point.yaw), 0.0;
+      if (path[i + 1].father_yaw_offset == 0) {
         Eigen::Vector3f start_vel = {MAX_VEL * cos(path[i].yaw),
                                      MAX_VEL * sin(path[i].yaw), 0.0};
         traj_point.pos = path[i].position + start_vel * time;
         traj_point.acc = Eigen::Vector3f::Zero();
         traj_point.yaw_rate = 0.0;
       } else {
-        float delta_yaw = path[i+1].father_yaw_offset * time / tau;
+        float delta_yaw = path[i + 1].father_yaw_offset * time / tau;
         float rad = MAX_VEL * time / delta_yaw;
         float std_x = rad * sin(delta_yaw);
         float std_y = rad * (1 - cos(delta_yaw));
-        Eigen::Vector3f offset(cos(path[i].yaw) * std_x - sin(path[i].yaw) * std_y,
-                               sin(path[i].yaw) * std_x + cos(path[i].yaw) * std_y,
-                               0.0);
+        Eigen::Vector3f offset(
+            cos(path[i].yaw) * std_x - sin(path[i].yaw) * std_y,
+            sin(path[i].yaw) * std_x + cos(path[i].yaw) * std_y, 0.0);
         traj_point.pos = path[i].position + offset;
         float new_yaw = traj_point.yaw + M_PI / 2.0;
-        traj_point.acc << MAX_VEL * MAX_VEL / rad * cos(new_yaw), MAX_VEL * MAX_VEL / rad * sin(new_yaw), 0.0;
-        traj_point.yaw_rate = path[i+1].father_yaw_offset / tau;
+        traj_point.acc << MAX_VEL * MAX_VEL / rad * cos(new_yaw),
+            MAX_VEL * MAX_VEL / rad * sin(new_yaw), 0.0;
+        traj_point.yaw_rate = path[i + 1].father_yaw_offset / tau;
       }
       traj.push_back(traj_point);
     }

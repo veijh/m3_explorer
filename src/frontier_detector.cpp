@@ -1,4 +1,16 @@
 #include "m3_explorer/frontier_detector.h"
+
+#include <Eigen/Dense>
+#include <cmath>
+#include <geometry_msgs/PoseArray.h>
+#include <geometry_msgs/TransformStamped.h>
+#include <queue>
+#include <sys/time.h>
+#include <tf2/LinearMath/Quaternion.h>
+#include <unordered_map>
+#include <utility>
+#include <visualization_msgs/MarkerArray.h>
+
 void frontier_detect(set<QuadMesh> &frontiers, octomap::OcTree *ocmap,
                      const geometry_msgs::PointStamped &cur_pose,
                      const double &sensor_range) {

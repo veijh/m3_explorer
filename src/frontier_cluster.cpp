@@ -1,4 +1,13 @@
 #include "m3_explorer/frontier_cluster.h"
+
+#include "m3_explorer/frontier_detector.h"
+#include "m3_explorer/kd_tree.h"
+#include <geometry_msgs/Pose.h>
+#include <random>
+#include <tf2/LinearMath/Quaternion.h>
+#include <unordered_map>
+#include <visualization_msgs/MarkerArray.h>
+
 vector<Cluster> k_mean_cluster(set<QuadMesh> &frontiers) {
   // dynamic cluster num
   const int num_frontiers = frontiers.size();

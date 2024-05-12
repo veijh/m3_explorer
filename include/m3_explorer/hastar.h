@@ -1,17 +1,8 @@
 #ifndef HASTAR_H
 #define HASTAR_H
 #include <Eigen/Dense>
-#include <algorithm>
-#include <cmath>
-#include <functional>
-#include <geometry_msgs/PoseStamped.h>
-#include <map>
-#include <memory>
 #include <octomap/octomap.h>
-#include <queue>
 #include <ros/ros.h>
-#include <string>
-#include <unordered_map>
 
 using namespace std;
 const double kDiv = 12.0 / 2.0;
