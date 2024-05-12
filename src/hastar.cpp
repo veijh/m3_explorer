@@ -118,6 +118,7 @@ bool Hastar::search_path(const octomap::OcTree *ocmap,
 
     float end_yaw = atan2(end_p.y() - closed_list[count].position.y(),
                           end_p.x() - closed_list[count].position.x());
+    // add accurate end point
     PathNode end(end_p, end_yaw);
     path.push_back(end);
 
@@ -180,7 +181,8 @@ bool Hastar::is_path_valid(const octomap::OcTree *ocmap,
 
 bool Hastar::trajectory_generate() {
   traj.clear();
-  for (int i = 0; i < path.size() - 1; i++) {
+  if(path.size() > 2){
+    for (int i = 0; i < path.size() - 2; i++) {
     for (float time = 0.0; time < tau; time += traj_sample) {
       Traj traj_point;
       traj_point.yaw = path[i].yaw + path[i + 1].father_yaw_offset * time / tau;
@@ -209,11 +211,28 @@ bool Hastar::trajectory_generate() {
       traj.push_back(traj_point);
     }
   }
-  Traj traj_point;
-  traj_point.acc = Eigen::Vector3f::Zero();
-  traj_point.vel = Eigen::Vector3f::Zero();
-  traj_point.pos = path.back().position;
-  traj.push_back(traj_point);
-  cout << "[Hastar] Traj generate OK!! traj point num: " << traj.size() << endl;
+    Traj traj_point;
+    traj_point.acc = Eigen::Vector3f::Zero();
+    traj_point.vel = Eigen::Vector3f::Zero();
+    traj_point.pos = path.back().position;
+    // keep yaw constant
+    traj_point.yaw = traj.back().yaw;
+    traj.push_back(traj_point);
+    cout << "[Hastar] Traj generate OK!! traj point num: " << traj.size() << endl;
+  }
+  else if(path.size() == 2){
+    Traj traj_point;
+    traj_point.acc = Eigen::Vector3f::Zero();
+    traj_point.vel = Eigen::Vector3f::Zero();
+    traj_point.pos = path.back().position;
+    // keep yaw constant
+    traj_point.yaw =
+        atan2(path.back().position.y() - path.front().position.y(),
+              path.back().position.x() - path.front().position.x());
+    traj.push_back(traj_point);
+  }
+  else{
+    return false;
+  }
   return true;
 }

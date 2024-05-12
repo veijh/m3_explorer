@@ -1,0 +1,2 @@
+PROBLEM_FILE = /src/catkin_ws/src/m3_explorer/tour/uav1/single.atsp
+TOUR_FILE = /src/catkin_ws/src/m3_explorer/tour/uav1/single.tour

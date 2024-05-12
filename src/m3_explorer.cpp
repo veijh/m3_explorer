@@ -38,14 +38,55 @@ PLAN_FSM state = PLAN_FSM::PLAN;
 
 using namespace std;
 
-octomap::OcTree *ocmap;
+int self_id = 0;
+
+void merge_octomap(octomap::OcTree* const from, octomap::OcTree* const to){
+  if(from == nullptr || to == nullptr) return;
+  // Expand tree2 so we search all nodes
+  from->expand();
+
+  // traverse nodes in tree2 to add them to tree1
+  for (octomap::OcTree::leaf_iterator it = from->begin_leafs();
+                            it != from->end_leafs(); ++it) {
+
+    // find if the current node maps a point in map1
+    octomap::point3d point = it.getCoordinate();
+    octomap::OcTreeNode *nodeIn1 = to->search(point);
+    if (nodeIn1 != NULL) {
+      // Add the probability of tree2 node to the found node
+      octomap::OcTreeKey nodeKey = to->coordToKey(point);
+      to->updateNode(nodeKey, it->getLogOdds());
+    } else {
+      // Create a new node and set the probability from tree2
+      octomap::OcTreeNode *newNode = to->updateNode(point, true);
+      newNode->setLogOdds(it->getLogOdds());
+    }
+  }
+
+}
+
+bool ocmap_init = false;
+octomap::OcTree* ocmap;
 void octomap_cb(const octomap_msgs::Octomap::ConstPtr &msg) {
-  // free memory for old map
-  delete ocmap;
-  ocmap = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
+  if(ocmap_init == false && self_id == 0){
+    ocmap = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
+    ocmap_init = true;
+    return;
+  }
+  merge_octomap(dynamic_cast<octomap::OcTree *>(msgToMap(*msg)), ocmap);
+}
+
+void other_octomap_cb(const octomap_msgs::Octomap::ConstPtr &msg) {
+  if(ocmap_init == false && self_id == 1){
+    ocmap = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
+    ocmap_init = true;
+    return;
+  }
+  merge_octomap(dynamic_cast<octomap::OcTree *>(msgToMap(*msg)), ocmap);
 }
 
 float cur_yaw = 0.0;
+// get UAV yaw from odom. note: it can merge to pos_cb
 void base_link_cb(const nav_msgs::Odometry::ConstPtr &msg) {
   tf2::Quaternion q(msg->pose.pose.orientation.x, msg->pose.pose.orientation.y,
                     msg->pose.pose.orientation.z, msg->pose.pose.orientation.w);
@@ -154,8 +195,10 @@ int main(int argc, char **argv) {
   ros::NodeHandle nh("");
   // get octomap
   ros::Subscriber octomap_sub =
-      nh.subscribe<octomap_msgs::Octomap>("octomap_full", 1, octomap_cb);
-  double resolution = 0.1, sensor_range = 5.0;
+      nh.subscribe<octomap_msgs::Octomap>("/uav0/octomap_full", 1, octomap_cb);
+  ros::Subscriber other_octomap_sub =
+      nh.subscribe<octomap_msgs::Octomap>("/uav1/octomap_full", 1, other_octomap_cb);
+  double resolution = 0.1, sensor_range = 20.0;
   // get current pose
   ros::Subscriber base_link_sub = nh.subscribe<nav_msgs::Odometry>(
       "ground_truth/base_link", 1, base_link_cb);
@@ -193,7 +236,10 @@ int main(int argc, char **argv) {
     rate.sleep();
   }
 
-  // ego planner input: target pose
+  nh.getParam("ID", self_id);
+  cout << "[INFO] uav ID = " << self_id << endl;
+
+  // planner input: target pose
   ros::Publisher goal_pub =
       nh.advertise<geometry_msgs::PoseStamped>("goal", 10);
   ros::Publisher ctrl_state_pub =
@@ -325,6 +371,7 @@ int main(int argc, char **argv) {
     }
 
     if (goal_exec) {
+      // receding horizon
       if (path_id >= explore_path.poses.size() || path_id > 1) {
         path_id = 0;
         goal_exec = false;
@@ -348,8 +395,7 @@ int main(int argc, char **argv) {
         tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
         float target_yaw = (float)yaw;
 
-        if (is_next_to_obstacle(ocmap, target_point, 0.8, 0.8) ||
-            delta.norm() < 0.2) {
+        if (is_next_to_obstacle(ocmap, target_point, 0.8, 0.8)) {
           path_id++;
           state = PLAN_FSM::PLAN;
         } else {
@@ -367,6 +413,7 @@ int main(int argc, char **argv) {
                                 1.5),
                 cur_yaw);
 
+            // re-search
             if(is_planned == false){
               is_planned = planning.search_path(
                 ocmap,
@@ -408,6 +455,7 @@ int main(int argc, char **argv) {
                 send_traj.traj.push_back(target_pose);
               }
 
+              // set target yaw at end_p
               target_pose.yaw = target_yaw;
               send_traj.traj.push_back(target_pose);
 
