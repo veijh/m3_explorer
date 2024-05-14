@@ -21,6 +21,7 @@
 #include <ros/ros.h>
 #include <set>
 #include <std_msgs/Float32MultiArray.h>
+#include <string>
 #include <sys/time.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -291,7 +292,7 @@ int main(int argc, char **argv) {
 
     // lookup transform of 3 axises
     geometry_msgs::PointStamped cam_o_in_cam;
-    cam_o_in_cam.header.frame_id = "uav0_camera_depth_frame";
+    cam_o_in_cam.header.frame_id = "uav" + to_string(self_id) + "_camera_depth_frame";
     cam_o_in_cam.point.x = 0.0;
     cam_o_in_cam.point.y = 0.0;
     cam_o_in_cam.point.z = 0.0;
