@@ -358,6 +358,8 @@ int main(int argc, char **argv) {
       if (vp_array.poses.size() > 2) {
         explore_path =
             atsp_path(cam_o_in_map, vp_array, lkh_client, problem_path);
+        // remove start point: cam_o_in_map
+        explore_path.poses.erase(explore_path.poses.begin());
       } else if (!vp_array.poses.empty()) {
         explore_path.poses.push_back(vp_array.poses[0]);
       } else {
@@ -373,7 +375,7 @@ int main(int argc, char **argv) {
 
     if (goal_exec) {
       // receding horizon
-      if (path_id >= explore_path.poses.size() || path_id > 1) {
+      if (path_id >= explore_path.poses.size() || path_id >= 1) {
         path_id = 0;
         goal_exec = false;
       } else {

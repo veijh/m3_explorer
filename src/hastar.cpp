@@ -131,7 +131,7 @@ bool Hastar::search_path(const octomap::OcTree *ocmap,
     reverse(path.begin(), path.end());
     cout << "[Hastar] waypoint generated!! waypoint num: " << path.size()
          << endl;
-    trajectory_generate();
+    trajectory_generate(yaw);
     return true;
   } else {
     cout << "[Hastar] no path" << endl;
@@ -179,7 +179,7 @@ bool Hastar::is_path_valid(const octomap::OcTree *ocmap,
 //     return true;
 // }
 
-bool Hastar::trajectory_generate() {
+bool Hastar::trajectory_generate(const float& yaw) {
   traj.clear();
   if(path.size() > 2){
     for (int i = 0; i < path.size() - 2; i++) {
@@ -226,9 +226,7 @@ bool Hastar::trajectory_generate() {
     traj_point.vel = Eigen::Vector3f::Zero();
     traj_point.pos = path.back().position;
     // keep yaw constant
-    traj_point.yaw =
-        atan2(path.back().position.y() - path.front().position.y(),
-              path.back().position.x() - path.front().position.x());
+    traj_point.yaw = yaw;
     traj.push_back(traj_point);
   }
   else{

@@ -106,7 +106,7 @@ public:
 
 class Hastar {
 private:
-  bool trajectory_generate();
+  bool trajectory_generate(const float& yaw);
 
 public:
   float tau = 0.2;
