@@ -1,32 +1,10 @@
 #include <ros/ros.h>
-#include <vector>
-#include <unordered_map>
-#include <set>
-#include <queue>
 #include <octomap/octomap.h>
 #include <octomap_msgs/Octomap.h>
 #include <octomap_msgs/conversions.h>
-#include <Eigen/Dense>
-#include <tf2_ros/transform_listener.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
-#include <tf2/LinearMath/Quaternion.h>
-#include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/PointStamped.h>
-#include <geometry_msgs/TransformStamped.h>
 #include <visualization_msgs/MarkerArray.h>
-#include <sys/time.h>
-#include <utility>
-#include <cmath>
-#include <random>
-#include "m3_explorer/frontier_detector.h"
-#include "m3_explorer/frontier_cluster.h"
-#include "m3_explorer/path_planning.h"
-#include <mavros_msgs/CommandBool.h>
-#include <mavros_msgs/SetMode.h>
-#include <mavros_msgs/State.h>
 #include <nav_msgs/Odometry.h>
-#include <std_msgs/Float32MultiArray.h>
-#include "lkh_ros/Solve.h"
 #include "fstream"
 
 using namespace std;
