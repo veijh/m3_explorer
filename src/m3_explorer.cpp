@@ -36,19 +36,43 @@ enum PLAN_FSM { WAIT = 0, PLAN, EXEC };
 
 Hastar planning;
 PLAN_FSM state = PLAN_FSM::PLAN;
+tf2_ros::Buffer tf_buffer;
 
 using namespace std;
 
 int self_id = 0;
 
-void merge_octomap(octomap::OcTree* const from, octomap::OcTree* const to){
+void merge_octomap(octomap::OcTree* const from, octomap::OcTree* const to, const int& id){
   if(from == nullptr || to == nullptr) return;
   // Expand tree2 so we search all nodes
   from->expand();
 
+  geometry_msgs::PointStamped cam_o_in_cam;
+  cam_o_in_cam.header.frame_id = "uav" + to_string(id) + "_camera_depth_frame";
+  cam_o_in_cam.point.x = 0.0;
+  cam_o_in_cam.point.y = 0.0;
+  cam_o_in_cam.point.z = 0.0;
+
+  geometry_msgs::PointStamped cam_o_in_map;
+  try {
+    // 使用lookupTransform函数查询坐标变换
+    tf_buffer.transform(cam_o_in_cam, cam_o_in_map, "map");
+  } catch (tf2::TransformException &ex) {
+    ROS_ERROR("Failed to transform point: %s", ex.what());
+  }
+
+  octomap::point3d check_bbx_min(cam_o_in_map.point.x - 5.0,
+                                 cam_o_in_map.point.y - 5.0,
+                                 max(1.0, cam_o_in_map.point.z - 5.0));
+  octomap::point3d check_bbx_max(cam_o_in_map.point.x + 5.0,
+                                 cam_o_in_map.point.y + 5.0,
+                                 min(2.0, cam_o_in_map.point.z + 5.0));
+
   // traverse nodes in tree2 to add them to tree1
-  for (octomap::OcTree::leaf_iterator it = from->begin_leafs();
-                            it != from->end_leafs(); ++it) {
+  for (octomap::OcTree::leaf_bbx_iterator
+             it = from->begin_leafs_bbx(check_bbx_min, check_bbx_max),
+             end = from->end_leafs_bbx();
+         it != end; ++it) {
 
     // find if the current node maps a point in map1
     octomap::point3d point = it.getCoordinate();
@@ -66,19 +90,24 @@ void merge_octomap(octomap::OcTree* const from, octomap::OcTree* const to){
 
 }
 
-bool ocmap_init = false;
-octomap::OcTree* ocmap;
-void octomap_cb(const octomap_msgs::Octomap::ConstPtr &msg) {
-  if(ocmap_init == false){
+// 未来考虑用函数对象作为回调函数，或者利用
+octomap::OcTree* ocmap = nullptr;
+void uav0_octomap_cb(const octomap_msgs::Octomap::ConstPtr &msg) {
+  // octomap init
+  if(ocmap == nullptr && self_id == 0){
     ocmap = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
-    ocmap_init = true;
     return;
   }
-  merge_octomap(dynamic_cast<octomap::OcTree *>(msgToMap(*msg)), ocmap);
+  merge_octomap(dynamic_cast<octomap::OcTree *>(msgToMap(*msg)), ocmap, 0);
 }
 
-void other_octomap_cb(const octomap_msgs::Octomap::ConstPtr &msg) {
-  merge_octomap(dynamic_cast<octomap::OcTree *>(msgToMap(*msg)), ocmap);
+void uav1_octomap_cb(const octomap_msgs::Octomap::ConstPtr &msg) {
+  // octomap init
+  if(ocmap == nullptr && self_id == 1){
+    ocmap = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
+    return;
+  }
+  merge_octomap(dynamic_cast<octomap::OcTree *>(msgToMap(*msg)), ocmap, 1);
 }
 
 float cur_yaw = 0.0;
@@ -192,7 +221,6 @@ int main(int argc, char **argv) {
 
   double resolution = 0.1, sensor_range = 20.0;
 
-  tf2_ros::Buffer tf_buffer;
   tf2_ros::TransformListener tf_listener(tf_buffer);
   ros::Duration(1.0).sleep(); // 等待tf2变换树准备好
   ros::Rate rate(5);
@@ -229,19 +257,8 @@ int main(int argc, char **argv) {
   cout << "[INFO] uav ID = " << self_id << endl;
 
   // get octomap
-  ros::Subscriber octomap_sub;
-  ros::Subscriber other_octomap_sub;
-  for(int i = 0; i < 2; ++i){
-    string octomap_topic = "/uav" + to_string(i) + "/octomap_full";
-    if(i == self_id) {
-      octomap_sub =
-      nh.subscribe<octomap_msgs::Octomap>(octomap_topic, 1, octomap_cb);
-    }
-    else {
-      other_octomap_sub =
-      nh.subscribe<octomap_msgs::Octomap>(octomap_topic, 1, other_octomap_cb);
-    }
-  }
+  ros::Subscriber uav0_octomap_sub = nh.subscribe<octomap_msgs::Octomap>("/uav0/octomap_full", 1, uav0_octomap_cb);
+  ros::Subscriber uav1_octomap_sub = nh.subscribe<octomap_msgs::Octomap>("/uav1/octomap_full", 1, uav1_octomap_cb);
   // get current pose
   ros::Subscriber base_link_sub = nh.subscribe<nav_msgs::Odometry>(
     "ground_truth/base_link", 1, base_link_cb);
