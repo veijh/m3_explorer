@@ -63,10 +63,10 @@ void merge_octomap(octomap::OcTree* const from, octomap::OcTree* const to, const
 
   octomap::point3d check_bbx_min(cam_o_in_map.point.x - 5.0,
                                  cam_o_in_map.point.y - 5.0,
-                                 max(1.0, cam_o_in_map.point.z - 5.0));
+                                 max(-0.1, cam_o_in_map.point.z - 5.0));
   octomap::point3d check_bbx_max(cam_o_in_map.point.x + 5.0,
                                  cam_o_in_map.point.y + 5.0,
-                                 min(2.0, cam_o_in_map.point.z + 5.0));
+                                 min(3.0, cam_o_in_map.point.z + 5.0));
 
   // traverse nodes in tree2 to add them to tree1
   for (octomap::OcTree::leaf_bbx_iterator
@@ -98,7 +98,9 @@ void uav0_octomap_cb(const octomap_msgs::Octomap::ConstPtr &msg) {
     ocmap = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
     return;
   }
-  merge_octomap(dynamic_cast<octomap::OcTree *>(msgToMap(*msg)), ocmap, 0);
+  octomap::OcTree* new_map = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
+  merge_octomap(new_map, ocmap, 0);
+  delete new_map;
 }
 
 void uav1_octomap_cb(const octomap_msgs::Octomap::ConstPtr &msg) {
@@ -107,7 +109,9 @@ void uav1_octomap_cb(const octomap_msgs::Octomap::ConstPtr &msg) {
     ocmap = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
     return;
   }
-  merge_octomap(dynamic_cast<octomap::OcTree *>(msgToMap(*msg)), ocmap, 1);
+  octomap::OcTree* new_map = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
+  merge_octomap(new_map, ocmap, 1);
+  delete new_map;
 }
 
 float cur_yaw = 0.0;
