@@ -69,7 +69,7 @@ void merge_octomap(octomap::OcTree* const from, octomap::OcTree* const to){
 bool ocmap_init = false;
 octomap::OcTree* ocmap;
 void octomap_cb(const octomap_msgs::Octomap::ConstPtr &msg) {
-  if(ocmap_init == false && self_id == 0){
+  if(ocmap_init == false){
     ocmap = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
     ocmap_init = true;
     return;
@@ -78,11 +78,6 @@ void octomap_cb(const octomap_msgs::Octomap::ConstPtr &msg) {
 }
 
 void other_octomap_cb(const octomap_msgs::Octomap::ConstPtr &msg) {
-  if(ocmap_init == false && self_id == 1){
-    ocmap = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
-    ocmap_init = true;
-    return;
-  }
   merge_octomap(dynamic_cast<octomap::OcTree *>(msgToMap(*msg)), ocmap);
 }
 
@@ -194,15 +189,8 @@ void offboard_takeoff(ros::NodeHandle &nh, const double &height) {
 int main(int argc, char **argv) {
   ros::init(argc, argv, "m3_explorer");
   ros::NodeHandle nh("");
-  // get octomap
-  ros::Subscriber octomap_sub =
-      nh.subscribe<octomap_msgs::Octomap>("/uav0/octomap_full", 1, octomap_cb);
-  ros::Subscriber other_octomap_sub =
-      nh.subscribe<octomap_msgs::Octomap>("/uav1/octomap_full", 1, other_octomap_cb);
+
   double resolution = 0.1, sensor_range = 20.0;
-  // get current pose
-  ros::Subscriber base_link_sub = nh.subscribe<nav_msgs::Odometry>(
-      "ground_truth/base_link", 1, base_link_cb);
 
   tf2_ros::Buffer tf_buffer;
   tf2_ros::TransformListener tf_listener(tf_buffer);
@@ -239,6 +227,24 @@ int main(int argc, char **argv) {
 
   nh.getParam("ID", self_id);
   cout << "[INFO] uav ID = " << self_id << endl;
+
+  // get octomap
+  ros::Subscriber octomap_sub;
+  ros::Subscriber other_octomap_sub;
+  for(int i = 0; i < 2; ++i){
+    string octomap_topic = "/uav" + to_string(i) + "/octomap_full";
+    if(i == self_id) {
+      octomap_sub =
+      nh.subscribe<octomap_msgs::Octomap>(octomap_topic, 1, octomap_cb);
+    }
+    else {
+      other_octomap_sub =
+      nh.subscribe<octomap_msgs::Octomap>(octomap_topic, 1, other_octomap_cb);
+    }
+  }
+  // get current pose
+  ros::Subscriber base_link_sub = nh.subscribe<nav_msgs::Odometry>(
+    "ground_truth/base_link", 1, base_link_cb);
 
   // planner input: target pose
   ros::Publisher goal_pub =
