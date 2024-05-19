@@ -137,19 +137,29 @@ include_directories(
 add_definitions(${EIGEN_DEFINITIONS})
 
 ## Declare a C++ library
-# add_library(${PROJECT_NAME}
-#   src/${PROJECT_NAME}/m3_explorer.cpp
-# )
+add_library(${PROJECT_NAME}_lib
+  src/frontier_detector.cpp
+  src/frontier_cluster.cpp
+  src/path_planning.cpp
+  src/kd_tree.cpp
+  src/hastar.cpp
+)
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
 ## either from message generation or dynamic reconfigure
-# add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(${PROJECT_NAME}_lib ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
 
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
-add_executable(${PROJECT_NAME} src/m3_explorer.cpp src/frontier_detector.cpp src/frontier_cluster.cpp src/path_planning.cpp src/kd_tree.cpp src/hastar.cpp)
+add_executable(${PROJECT_NAME}
+  src/m3_explorer.cpp 
+  src/frontier_detector.cpp
+  src/frontier_cluster.cpp
+  src/path_planning.cpp
+  src/kd_tree.cpp
+  src/hastar.cpp)
 add_executable(analyze src/analyze.cpp)
 add_executable(control_test src/control_test.cpp src/hastar.cpp)
 add_executable(mavros_ctrl src/mavros_ctrl.cpp)
@@ -163,7 +173,7 @@ add_executable(mavros_ctrl src/mavros_ctrl.cpp)
 
 ## Add cmake target dependencies of the executable
 ## same as for the library above
-# add_dependencies(${PROJECT_NAME}_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp ${PROJECT_NAME}_gencpp)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(${PROJECT_NAME}
