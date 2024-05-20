@@ -100,9 +100,11 @@ int main(int argc, char **argv) {
 
   while (ros::ok())
   {
-    octomap_msgs::Octomap merged_map;
-    octomap_msgs::fullMapToMsg(*MapMerge::ocmap, merged_map);
-    octomap_pub.publish(merged_map);
+    if(MapMerge::ocmap != nullptr){
+      octomap_msgs::Octomap merged_map;
+      octomap_msgs::fullMapToMsg(*MapMerge::ocmap, merged_map);
+      octomap_pub.publish(merged_map);
+    }
     ros::spinOnce();
     rate.sleep();
   }
