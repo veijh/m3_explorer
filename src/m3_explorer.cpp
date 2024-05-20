@@ -42,76 +42,10 @@ using namespace std;
 
 int self_id = 0;
 
-void merge_octomap(octomap::OcTree* const from, octomap::OcTree* const to, const int& id){
-  if(from == nullptr || to == nullptr) return;
-  // Expand tree2 so we search all nodes
-  from->expand();
-
-  geometry_msgs::PointStamped cam_o_in_cam;
-  cam_o_in_cam.header.frame_id = "uav" + to_string(id) + "_camera_depth_frame";
-  cam_o_in_cam.point.x = 0.0;
-  cam_o_in_cam.point.y = 0.0;
-  cam_o_in_cam.point.z = 0.0;
-
-  geometry_msgs::PointStamped cam_o_in_map;
-  try {
-    // 使用lookupTransform函数查询坐标变换
-    tf_buffer.transform(cam_o_in_cam, cam_o_in_map, "map");
-  } catch (tf2::TransformException &ex) {
-    ROS_ERROR("Failed to transform point: %s", ex.what());
-  }
-
-  octomap::point3d check_bbx_min(cam_o_in_map.point.x - 5.0,
-                                 cam_o_in_map.point.y - 5.0,
-                                 max(-0.1, cam_o_in_map.point.z - 5.0));
-  octomap::point3d check_bbx_max(cam_o_in_map.point.x + 5.0,
-                                 cam_o_in_map.point.y + 5.0,
-                                 min(3.0, cam_o_in_map.point.z + 5.0));
-
-  // traverse nodes in tree2 to add them to tree1
-  for (octomap::OcTree::leaf_bbx_iterator
-             it = from->begin_leafs_bbx(check_bbx_min, check_bbx_max),
-             end = from->end_leafs_bbx();
-         it != end; ++it) {
-
-    // find if the current node maps a point in map1
-    octomap::point3d point = it.getCoordinate();
-    octomap::OcTreeNode *nodeIn1 = to->search(point);
-    if (nodeIn1 != NULL) {
-      // Add the probability of tree2 node to the found node
-      octomap::OcTreeKey nodeKey = to->coordToKey(point);
-      to->updateNode(nodeKey, it->getLogOdds());
-    } else {
-      // Create a new node and set the probability from tree2
-      octomap::OcTreeNode *newNode = to->updateNode(point, true);
-      newNode->setLogOdds(it->getLogOdds());
-    }
-  }
-
-}
-
-// 未来考虑用函数对象作为回调函数，或者利用
 octomap::OcTree* ocmap = nullptr;
-void uav0_octomap_cb(const octomap_msgs::Octomap::ConstPtr &msg) {
-  // octomap init
-  if(ocmap == nullptr && self_id == 0){
-    ocmap = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
-    return;
-  }
-  octomap::OcTree* new_map = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
-  merge_octomap(new_map, ocmap, 0);
-  delete new_map;
-}
-
-void uav1_octomap_cb(const octomap_msgs::Octomap::ConstPtr &msg) {
-  // octomap init
-  if(ocmap == nullptr && self_id == 1){
-    ocmap = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
-    return;
-  }
-  octomap::OcTree* new_map = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
-  merge_octomap(new_map, ocmap, 1);
-  delete new_map;
+void octomap_cb(const octomap_msgs::Octomap::ConstPtr &msg) {
+  delete ocmap;
+  ocmap = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
 }
 
 float cur_yaw = 0.0;
@@ -261,8 +195,7 @@ int main(int argc, char **argv) {
   cout << "[INFO] uav ID = " << self_id << endl;
 
   // get octomap
-  ros::Subscriber uav0_octomap_sub = nh.subscribe<octomap_msgs::Octomap>("/uav0/octomap_full", 1, uav0_octomap_cb);
-  ros::Subscriber uav1_octomap_sub = nh.subscribe<octomap_msgs::Octomap>("/uav1/octomap_full", 1, uav1_octomap_cb);
+  ros::Subscriber uav0_octomap_sub = nh.subscribe<octomap_msgs::Octomap>("/merged_map", 1, octomap_cb);
   // get current pose
   ros::Subscriber base_link_sub = nh.subscribe<nav_msgs::Odometry>(
     "ground_truth/base_link", 1, base_link_cb);
