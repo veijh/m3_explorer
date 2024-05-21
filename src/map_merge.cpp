@@ -10,7 +10,7 @@
 
 using namespace std;
 tf2_ros::Buffer tf_buffer;
-const int uav_num = 2;
+const int uav_num = 3;
 
 void merge_octomap(octomap::OcTree *const from, octomap::OcTree *const to,
                    const int &id) {
