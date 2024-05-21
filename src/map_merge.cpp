@@ -98,10 +98,14 @@ int main(int argc, char **argv) {
     octomap_sub[i] = nh.subscribe<octomap_msgs::Octomap>("/uav" + to_string(i) + "/octomap_full", 1, octomap_cb[i]);
   }
 
+  ROS_INFO("Map Merge has started !!");
+
   while (ros::ok())
   {
     if(MapMerge::ocmap != nullptr){
       octomap_msgs::Octomap merged_map;
+      merged_map.header.frame_id = "map";
+      merged_map.header.stamp = ros::Time::now();
       octomap_msgs::fullMapToMsg(*MapMerge::ocmap, merged_map);
       octomap_pub.publish(merged_map);
     }
