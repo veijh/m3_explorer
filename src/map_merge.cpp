@@ -1,8 +1,8 @@
-#include <ros/ros.h>
+#include <geometry_msgs/PointStamped.h>
 #include <octomap/octomap.h>
 #include <octomap_msgs/Octomap.h>
 #include <octomap_msgs/conversions.h>
-#include <geometry_msgs/PointStamped.h>
+#include <ros/ros.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2_ros/transform_listener.h>
@@ -10,9 +10,12 @@
 
 using namespace std;
 tf2_ros::Buffer tf_buffer;
+const int uav_num = 2;
 
-void merge_octomap(octomap::OcTree* const from, octomap::OcTree* const to, const int& id){
-  if(from == nullptr || to == nullptr) return;
+void merge_octomap(octomap::OcTree *const from, octomap::OcTree *const to,
+                   const int &id) {
+  if (from == nullptr || to == nullptr)
+    return;
   // Expand tree2 so we search all nodes
   from->expand();
 
@@ -39,9 +42,9 @@ void merge_octomap(octomap::OcTree* const from, octomap::OcTree* const to, const
 
   // traverse nodes in tree2 to add them to tree1
   for (octomap::OcTree::leaf_bbx_iterator
-             it = from->begin_leafs_bbx(check_bbx_min, check_bbx_max),
-             end = from->end_leafs_bbx();
-         it != end; ++it) {
+           it = from->begin_leafs_bbx(check_bbx_min, check_bbx_max),
+           end = from->end_leafs_bbx();
+       it != end; ++it) {
 
     // find if the current node maps a point in map1
     octomap::point3d point = it.getCoordinate();
@@ -57,28 +60,57 @@ void merge_octomap(octomap::OcTree* const from, octomap::OcTree* const to, const
     }
   }
 
+  // clear occupancy of all UAVs
+  for (int i = 0; i < uav_num; ++i) {
+    geometry_msgs::PointStamped uav_o;
+    uav_o.header.frame_id = "uav" + to_string(i) + "_base_link";
+    uav_o.point.x = 0.0;
+    uav_o.point.y = 0.0;
+    uav_o.point.z = 0.0;
+
+    geometry_msgs::PointStamped uav_in_map;
+    try {
+      // 使用lookupTransform函数查询坐标变换
+      tf_buffer.transform(uav_o, uav_in_map, "map");
+    } catch (tf2::TransformException &ex) {
+      ROS_ERROR("Failed to transform point: %s", ex.what());
+    }
+    for (double x_offset = -0.4; x_offset <= 0.4; x_offset += 0.05) {
+      for (double y_offset = -0.4; y_offset <= 0.4; y_offset += 0.05) {
+        for (double z_offset = -0.2; z_offset <= 0.2; z_offset += 0.05) {
+          octomap::OcTreeNode *nodeIn1 = to->search(
+              uav_in_map.point.x + x_offset, uav_in_map.point.y + y_offset,
+              uav_in_map.point.z + z_offset);
+          if (nodeIn1 != NULL) {
+            to->updateNode(uav_in_map.point.x + x_offset, uav_in_map.point.y + y_offset,
+              uav_in_map.point.z + z_offset, false);
+          }
+        }
+      }
+    }
+  }
 }
 
-class MapMerge
-{
+class MapMerge {
 private:
   int uav_id_;
+
 public:
-  static octomap::OcTree* ocmap;
-  MapMerge(int uav_id): uav_id_(uav_id){};
-  void operator() (const octomap_msgs::Octomap::ConstPtr &msg){
+  static octomap::OcTree *ocmap;
+  MapMerge(int uav_id) : uav_id_(uav_id){};
+  void operator()(const octomap_msgs::Octomap::ConstPtr &msg) {
     // octomap init
-    if(ocmap == nullptr){
+    if (ocmap == nullptr) {
       ocmap = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
       return;
     }
-    octomap::OcTree* new_map = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
+    octomap::OcTree *new_map = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
     merge_octomap(new_map, ocmap, uav_id_);
     delete new_map;
   }
 };
 
-octomap::OcTree* MapMerge::ocmap = nullptr;
+octomap::OcTree *MapMerge::ocmap = nullptr;
 
 int main(int argc, char **argv) {
   ros::init(argc, argv, "map_merge");
@@ -88,21 +120,21 @@ int main(int argc, char **argv) {
   ros::Duration(1.0).sleep(); // 等待tf2变换树准备好
   ros::Rate rate(10);
 
-  ros::Publisher octomap_pub = nh.advertise<octomap_msgs::Octomap>("/merged_map", 10);
-  int uav_num = 2;
+  ros::Publisher octomap_pub =
+      nh.advertise<octomap_msgs::Octomap>("/merged_map", 10);
   vector<ros::Subscriber> octomap_sub(uav_num);
   vector<MapMerge> octomap_cb;
 
-  for(int i = 0; i < uav_num; ++i){
+  for (int i = 0; i < uav_num; ++i) {
     octomap_cb.emplace_back(i);
-    octomap_sub[i] = nh.subscribe<octomap_msgs::Octomap>("/uav" + to_string(i) + "/octomap_full", 1, octomap_cb[i]);
+    octomap_sub[i] = nh.subscribe<octomap_msgs::Octomap>(
+        "/uav" + to_string(i) + "/octomap_full", 1, octomap_cb[i]);
   }
 
   ROS_INFO("Map Merge has started !!");
 
-  while (ros::ok())
-  {
-    if(MapMerge::ocmap != nullptr){
+  while (ros::ok()) {
+    if (MapMerge::ocmap != nullptr) {
       octomap_msgs::Octomap merged_map;
       merged_map.header.frame_id = "map";
       merged_map.header.stamp = ros::Time::now();
