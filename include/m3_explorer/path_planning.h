@@ -5,11 +5,16 @@
 #include <geometry_msgs/PoseArray.h>
 #include <ros/ros.h>
 #include <string>
+#include <vector>
 
 using namespace std;
 geometry_msgs::PoseArray
 atsp_path(const geometry_msgs::PointStamped &current_pose,
           const geometry_msgs::PoseArray &view_points,
           ros::ServiceClient &lkh_client, const string &problem_path);
-
+geometry_msgs::PoseArray
+amtsp_path(const geometry_msgs::PointStamped &current_pose,
+            const vector<geometry_msgs::PointStamped> &other_poses,
+          const geometry_msgs::PoseArray &view_points,
+          ros::ServiceClient &lkh_client, const string &problem_path);
 #endif
