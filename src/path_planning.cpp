@@ -120,9 +120,9 @@ atsp_path(const geometry_msgs::PointStamped &current_pose,
 
 geometry_msgs::PoseArray
 amtsp_path(const geometry_msgs::PointStamped &current_pose,
-            const vector<geometry_msgs::PointStamped> &other_poses,
-          const geometry_msgs::PoseArray &view_points,
-          ros::ServiceClient &lkh_client, const string &problem_path) {
+           const vector<geometry_msgs::PointStamped> &other_poses,
+           const geometry_msgs::PoseArray &view_points,
+           ros::ServiceClient &lkh_client, const string &problem_path) {
   geometry_msgs::PoseArray result;
   string par = problem_path + "/multi.par";
   string atsp = problem_path + "/multi.atsp";
@@ -152,10 +152,13 @@ amtsp_path(const geometry_msgs::PointStamped &current_pose,
   }
   atsp_file << "NAME : EXPLORATION" << endl;
   atsp_file << "TYPE : ATSP" << endl;
-  atsp_file << "DIMENSION : " << view_points.poses.size() + num_salesman << endl;
+  // view point + uavs + virtual depot
+  atsp_file << "DIMENSION : " << view_points.poses.size() + num_salesman + 1
+            << endl;
   atsp_file << "EDGE_WEIGHT_TYPE: EXPLICIT" << endl;
   atsp_file << "EDGE_WEIGHT_FORMAT: FULL_MATRIX" << endl;
   atsp_file << "EDGE_WEIGHT_SECTION" << endl;
+
   // weight of edge from i to j
   geometry_msgs::PoseArray all_node;
   all_node.header = view_points.header;
@@ -164,34 +167,48 @@ amtsp_path(const geometry_msgs::PointStamped &current_pose,
   new_node.orientation.x = 0;
   new_node.orientation.y = 0;
   new_node.orientation.z = 0;
+
+  // virtual depot
+  all_node.poses.emplace_back(new_node);
+
+  // self
   new_node.position.x = current_pose.point.x;
   new_node.position.y = current_pose.point.y;
   new_node.position.z = current_pose.point.z;
   all_node.poses.emplace_back(new_node);
 
+  // other
   const int num_other_nodes = other_poses.size();
-  for(int i = 0; i < num_other_nodes; ++i){
+  for (int i = 0; i < num_other_nodes; ++i) {
     new_node.position.x = other_poses[i].point.x;
     new_node.position.y = other_poses[i].point.y;
     new_node.position.z = other_poses[i].point.z;
     all_node.poses.emplace_back(new_node);
   }
 
-  all_node.poses.insert(all_node.poses.end(), view_points.poses.begin(), view_points.poses.end());
+  // view points
+  all_node.poses.insert(all_node.poses.end(), view_points.poses.begin(),
+                        view_points.poses.end());
 
   const int num_all_node = all_node.poses.size();
 
   cout << "writing file !!" << endl;
   for (int i = 0; i < num_all_node; i++) {
     for (int j = 0; j < num_all_node; j++) {
-      if (i == j) {
+      if (i == 0) {
+        if (j <= num_salesman) {
+          atsp_file << 0 << " ";
+        } else {
+          atsp_file << 99999999 << " ";
+        }
+      } else if (j == 0) {
         atsp_file << 0 << " ";
-      }
-      else if (i >= num_salesman && j < num_salesman) {
+      } else if (i == j) {
         atsp_file << 0 << " ";
       } else {
-        double edge_w = hypot(all_node.poses[i].position.x - all_node.poses[j].position.x,
-            all_node.poses[i].position.y - all_node.poses[j].position.y);
+        double edge_w =
+            hypot(all_node.poses[i].position.x - all_node.poses[j].position.x,
+                  all_node.poses[i].position.y - all_node.poses[j].position.y);
         atsp_file << (int)(edge_w * 1000.0) << " ";
       }
     }
@@ -234,27 +251,21 @@ amtsp_path(const geometry_msgs::PointStamped &current_pose,
   tour_file.close();
 
   // check whether the result is reasonable
-  if (node_seq.size() != num_all_node) {
+  if (node_seq.size() != num_all_node + num_salesman - 1) {
     std::cerr << "the result is not reasonable" << std::endl;
     return result;
   }
 
   result.header.frame_id = "map";
-  vector<int>::iterator it =
-      find(node_seq.begin(), node_seq.end(), 1);
+  vector<int>::iterator it = find(node_seq.begin(), node_seq.end(), 2);
 
-  for (int i = 0; i < node_seq.size(); i++) {
+  for(; it != node_seq.end(); ++it) {
     int id = *it - 1;
-    if(id > 0 && id < num_salesman){
+    if(id >= num_all_node) {
       break;
     }
-    else{
+    else {
       result.poses.push_back(all_node.poses[id]);
-    }
-    if (it + 1 == node_seq.end()) {
-      it = node_seq.begin();
-    } else {
-      it++;
     }
   }
   return result;
