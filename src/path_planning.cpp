@@ -187,7 +187,7 @@ amtsp_path(const geometry_msgs::PointStamped &current_pose,
       if (i == j) {
         atsp_file << 0 << " ";
       }
-      else if (j < num_salesman) {
+      else if (i >= num_salesman && j < num_salesman) {
         atsp_file << 0 << " ";
       } else {
         double edge_w = hypot(all_node.poses[i].position.x - all_node.poses[j].position.x,

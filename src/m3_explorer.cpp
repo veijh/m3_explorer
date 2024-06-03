@@ -268,6 +268,22 @@ int main(int argc, char **argv) {
       ROS_ERROR("Failed to transform point: %s", ex.what());
     }
 
+    vector<geometry_msgs::PointStamped> other_uav_poses;
+    geometry_msgs::PointStamped other_uav(cam_o_in_cam);
+    geometry_msgs::PointStamped other_uav_in_map;
+    for(int i = 0; i < 3; ++i) {
+      if(i != self_id){
+        other_uav.header.frame_id = "uav" + to_string(i) + "_camera_depth_frame";
+        try {
+          // 使用lookupTransform函数查询坐标变换
+          tf_buffer.transform(other_uav, other_uav_in_map, "map");
+        } catch (tf2::TransformException &ex) {
+          ROS_ERROR("Failed to transform point: %s", ex.what());
+        }
+        other_uav_poses.emplace_back(other_uav_in_map);
+      }
+    }
+
     //// input = octomap; current pose; FOV; max range; region bbx
     //// output = a set containing all frontier voxels
 
@@ -317,7 +333,7 @@ int main(int argc, char **argv) {
       explore_path.poses.clear();
       if (vp_array.poses.size() > 2) {
         explore_path =
-            atsp_path(cam_o_in_map, vp_array, lkh_client, problem_path);
+            amtsp_path(cam_o_in_map, other_uav_poses, vp_array, lkh_client, problem_path);
         // remove start point: cam_o_in_map
         explore_path.poses.erase(explore_path.poses.begin());
       } else if (!vp_array.poses.empty()) {
