@@ -199,7 +199,7 @@ amtsp_path(const geometry_msgs::PointStamped &current_pose,
         if (j <= num_salesman) {
           atsp_file << 0 << " ";
         } else {
-          atsp_file << 99999999 << " ";
+          atsp_file << 999999 << " ";
         }
       } else if (j == 0) {
         atsp_file << 0 << " ";
@@ -209,7 +209,7 @@ amtsp_path(const geometry_msgs::PointStamped &current_pose,
         double edge_w =
             hypot(all_node.poses[i].position.x - all_node.poses[j].position.x,
                   all_node.poses[i].position.y - all_node.poses[j].position.y);
-        atsp_file << (int)(edge_w * 1000.0) << " ";
+        atsp_file << (int)(edge_w * 100.0) << " ";
       }
     }
     atsp_file << endl;
