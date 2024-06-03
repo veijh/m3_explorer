@@ -140,8 +140,8 @@ amtsp_path(const geometry_msgs::PointStamped &current_pose,
   par_file << "PROBLEM_FILE = " << atsp << endl;
   par_file << "TOUR_FILE = " << tour << endl;
   par_file << "MTSP_OBJECTIVE = MINMAX" << endl;
-  par_file << "MTSP_SOLUTION_FILE" << mtsp_solution << endl;
-  par_file << "SALESMAN = " << num_salesman << endl;
+  par_file << "MTSP_SOLUTION_FILE = " << mtsp_solution << endl;
+  par_file << "SALESMEN = " << num_salesman << endl;
   par_file.close();
 
   // create atsp file for lkh
