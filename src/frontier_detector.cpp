@@ -18,14 +18,14 @@ void frontier_detect(set<QuadMesh> &frontiers, octomap::OcTree *ocmap,
   if (!frontiers.empty() && ocmap != nullptr) {
     auto it = frontiers.begin();
     while (it != frontiers.end()) {
-      if (abs(it->center.x() - cur_pose.point.x) > sensor_range) {
-        it++;
-        continue;
-      }
-      if (abs(it->center.y() - cur_pose.point.y) > sensor_range) {
-        it++;
-        continue;
-      }
+      // if (abs(it->center.x() - cur_pose.point.x) > sensor_range) {
+      //   it++;
+      //   continue;
+      // }
+      // if (abs(it->center.y() - cur_pose.point.y) > sensor_range) {
+      //   it++;
+      //   continue;
+      // }
 
       if (ocmap->search(it->center) != nullptr) {
         it = frontiers.erase(it);
