@@ -119,7 +119,7 @@ atsp_path(const geometry_msgs::PointStamped &current_pose,
 }
 
 geometry_msgs::PoseArray
-amtsp_path(const geometry_msgs::PointStamped &current_pose,
+amtsp_path(const octomap::OcTree *ocmap, const geometry_msgs::PointStamped &current_pose,
            const vector<geometry_msgs::PointStamped> &other_poses,
            const geometry_msgs::PoseArray &view_points,
            ros::ServiceClient &lkh_client, const string &problem_path) {
@@ -191,6 +191,7 @@ amtsp_path(const geometry_msgs::PointStamped &current_pose,
                         view_points.poses.end());
 
   const int num_all_node = all_node.poses.size();
+  Astar astar;
 
   cout << "writing file !!" << endl;
   for (int i = 0; i < num_all_node; i++) {
@@ -206,9 +207,9 @@ amtsp_path(const geometry_msgs::PointStamped &current_pose,
       } else if (i == j) {
         atsp_file << 0 << " ";
       } else {
-        double edge_w =
-            hypot(all_node.poses[i].position.x - all_node.poses[j].position.x,
-                  all_node.poses[i].position.y - all_node.poses[j].position.y);
+        Eigen::Vector3f start_p(all_node.poses[i].position.x, all_node.poses[i].position.y, all_node.poses[i].position.z);
+        Eigen::Vector3f end_p(all_node.poses[j].position.x, all_node.poses[j].position.y, all_node.poses[j].position.z);
+        double edge_w = astar.astar_path_distance(ocmap, start_p, end_p);
         atsp_file << (int)(edge_w * 100.0) << " ";
       }
     }

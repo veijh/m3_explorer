@@ -143,6 +143,7 @@ add_library(${PROJECT_NAME}_lib
   src/path_planning.cpp
   src/kd_tree.cpp
   src/hastar.cpp
+  src/astar.cpp
 )
 
 ## Add cmake target dependencies of the library

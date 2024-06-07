@@ -333,7 +333,7 @@ int main(int argc, char **argv) {
       explore_path.poses.clear();
       if (vp_array.poses.size() > 2) {
         explore_path =
-            amtsp_path(cam_o_in_map, other_uav_poses, vp_array, lkh_client, problem_path);
+            amtsp_path(ocmap, cam_o_in_map, other_uav_poses, vp_array, lkh_client, problem_path);
         // remove start point: cam_o_in_map
         explore_path.poses.erase(explore_path.poses.begin());
       } else if (!vp_array.poses.empty()) {
