@@ -143,9 +143,9 @@ float Hastar::astar_path_distance(const octomap::OcTree *ocmap,
                                   const Eigen::Vector3f &start_p,
                                   const Eigen::Vector3f &end_p) {
   vector<Eigen::Vector3f> expand_offset = {
-      {0.1, 0.0, 0.0}, {-0.1, 0.0, 0.0}, {0.0, 0.1, 0.0}, {0.0, -0.1, 0.0},
-      {0.1, 0.1, 0.0}, {-0.1, 0.1, 0.0}, {1.0, 0.1, 0.0}, {1.0, -0.1, 0.0},
-      {0.0, 0.0, 0.1}, {0.0, 0.0, -0.1}};
+      {0.2, 0.0, 0.0}, {-0.2, 0.0, 0.0}, {0.0, 0.2, 0.0}, {0.0, -0.2, 0.0},
+      {0.2, 0.2, 0.0}, {-0.2, 0.2, 0.0}, {-0.2, -0.2, 0.0}, {0.2, -0.2, 0.0},
+      {0.0, 0.0, 0.2}, {0.0, 0.0, -0.2}};
 
   priority_queue<AstarNode, vector<AstarNode>, AstarNodeCmp> astar_q;
   vector<AstarNode> closed_list;
@@ -207,7 +207,7 @@ float Hastar::astar_path_distance(const octomap::OcTree *ocmap,
         node_state[next_node] = 0;
       } else {
         if (node_state[next_node] == 0 &&
-            node.g_score + tau > node_g_score[next_node]) {
+            node.g_score + (node.position_ - next_node.position_).norm() > node_g_score[next_node]) {
           continue;
         }
       }
@@ -223,7 +223,7 @@ float Hastar::astar_path_distance(const octomap::OcTree *ocmap,
     count++;
   }
 
-  return -1.0;
+  return 999999.0;
 }
 
 float Hastar::calc_h_score(const octomap::OcTree *ocmap,
