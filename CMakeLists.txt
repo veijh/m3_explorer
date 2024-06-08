@@ -156,7 +156,7 @@ add_dependencies(${PROJECT_NAME}_lib ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catki
 ## The recommended prefix ensures that target names across packages don't collide
 add_executable(${PROJECT_NAME} src/m3_explorer.cpp)
 add_executable(analyze src/analyze.cpp)
-add_executable(control_test src/control_test.cpp src/hastar.cpp)
+add_executable(control_test src/control_test.cpp src/hastar.cpp src/astar.cpp)
 add_executable(mavros_ctrl src/mavros_ctrl.cpp)
 add_executable(map_merge src/map_merge.cpp)
 

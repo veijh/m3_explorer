@@ -26,13 +26,13 @@ struct AstarNodeCmp {
 // 用于map
 struct AstarMapCmp {
   bool operator()(const AstarNode &lhs, const AstarNode &rhs) {
-    int x0 = (int)(lhs.position_.x() / 0.2);
-    int y0 = (int)(lhs.position_.y() / 0.2);
-    int z0 = (int)(lhs.position_.z() / 0.2);
+    int x0 = (int)(lhs.position_.x() / 0.1);
+    int y0 = (int)(lhs.position_.y() / 0.1);
+    int z0 = (int)(lhs.position_.z() / 0.1);
 
-    int x1 = (int)(rhs.position_.x() / 0.2);
-    int y1 = (int)(rhs.position_.y() / 0.2);
-    int z1 = (int)(rhs.position_.z() / 0.2);
+    int x1 = (int)(rhs.position_.x() / 0.1);
+    int y1 = (int)(rhs.position_.y() / 0.1);
+    int z1 = (int)(rhs.position_.z() / 0.1);
 
     if (x0 != x1)
       return x0 < x1;

@@ -6,6 +6,10 @@
 #include <mavros_msgs/PositionTarget.h>
 #include <math.h>
 #include "m3_explorer/hastar.h"
+#include "m3_explorer/astar.h"
+#include <octomap/octomap.h>
+#include <octomap_msgs/Octomap.h>
+#include <octomap_msgs/conversions.h>
 
 class CircleTrajectory {
 public:
@@ -120,8 +124,20 @@ private:
     mavros_msgs::CommandBool arm_cmd;
 };
 
+octomap::OcTree* ocmap = nullptr;
+void octomap_cb(const octomap_msgs::Octomap::ConstPtr &msg) {
+  delete ocmap;
+  ocmap = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
+}
+
 int main(int argc, char **argv) {
     ros::init(argc, argv, "circle_trajectory_node");
+    ros::NodeHandle nh("");
+    // get octomap
+    ros::Subscriber uav0_octomap_sub = nh.subscribe<octomap_msgs::Octomap>("/merged_map", 1, octomap_cb);
+    while(ocmap == nullptr) ros::spinOnce();
+    Astar astar;
+    cout << astar.astar_path_distance(ocmap, Eigen::Vector3f(-18.2, -3.9, 1.5), Eigen::Vector3f(3.4, -6.1, 1.5)) << endl;
 
     CircleTrajectory circle_trajectory;
     circle_trajectory.run();

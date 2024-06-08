@@ -14,7 +14,6 @@ float Astar::astar_path_distance(const octomap::OcTree *ocmap,
                                  const Eigen::Vector3f &end_p) {
   vector<Eigen::Vector3f> expand_offset = {
       {0.2, 0.0, 0.0}, {-0.2, 0.0, 0.0}, {0.0, 0.2, 0.0},   {0.0, -0.2, 0.0},
-      {0.2, 0.2, 0.0}, {-0.2, 0.2, 0.0}, {-0.2, -0.2, 0.0}, {0.2, -0.2, 0.0},
       {0.0, 0.0, 0.2}, {0.0, 0.0, -0.2}};
 
   priority_queue<AstarNode, vector<AstarNode>, AstarNodeCmp> astar_q;
@@ -39,6 +38,8 @@ float Astar::astar_path_distance(const octomap::OcTree *ocmap,
   node_g_score[root] = 0.0;
 
   while (!astar_q.empty()) {
+    // cin.get();
+    // cout << "top node: " << endl;
     // selection
     AstarNode node = astar_q.top();
     astar_q.pop();
@@ -51,8 +52,7 @@ float Astar::astar_path_distance(const octomap::OcTree *ocmap,
     closed_list.emplace_back(node);
     node_state[node] = 1;
 
-    // cout << (node.position - end_p).norm() << endl << endl;
-    // cout << (node.position) << node.vel << endl << endl;
+    // cout << (node.position_) << ", " << node.f_score << endl << endl;
 
     if ((node.position_ - end_p).norm() < 0.2) {
       return node.g_score + (node.position_ - end_p).norm();
@@ -63,28 +63,30 @@ float Astar::astar_path_distance(const octomap::OcTree *ocmap,
 
     float next_yaw;
     for (int i = 0; i < expand_offset.size(); ++i) {
+      // cin.get();
       next_pos = node.position_ + expand_offset[i];
+      // cout << next_pos << endl;
       // check next node is valid
       bool is_next_node_valid = is_path_valid(ocmap, node.position_, next_pos);
 
       if (!is_next_node_valid) {
+        // cout << "not valid " << i << endl;
         continue;
       }
 
       AstarNode next_node(next_pos);
-      float delta_pos = (node.position_ - next_node.position_).norm();
       // check if node is in open/closed list
       if (node_state.find(next_node) == node_state.end()) {
         node_state[next_node] = 0;
       } else {
         if (node_state[next_node] == 0 &&
-            node.g_score + delta_pos > node_g_score[next_node]) {
+            node.g_score + 0.2 > node_g_score[next_node]) {
           continue;
         }
       }
       next_node.father_id = count;
-      next_node.h_score = (next_node.position_ - end_p).norm();
-      next_node.g_score = node.g_score + delta_pos;
+      next_node.h_score = calc_h_score(next_node.position_, end_p);
+      next_node.g_score = node.g_score + 0.2;
       node_g_score[next_node] = next_node.g_score;
       next_node.f_score = next_node.g_score + next_node.h_score;
       astar_q.push(next_node);
@@ -92,8 +94,8 @@ float Astar::astar_path_distance(const octomap::OcTree *ocmap,
 
     count++;
   }
-  cout << "[WARNING] no path !!" << endl;
-  return 999999.0;
+  cout << "[WARNING] no path !! from " << endl << start_p << endl << "to " << end_p << endl;
+  return (end_p - start_p).norm();
 }
 
 float Astar::calc_h_score(const Eigen::Vector3f &start_p,
@@ -106,27 +108,16 @@ bool Astar::is_path_valid(const octomap::OcTree *ocmap,
                           const Eigen::Vector3f &next_pos) {
   octomap::point3d next_pos_check(next_pos.x(), next_pos.y(), next_pos.z());
   octomap::OcTreeNode *oc_node = ocmap->search(next_pos_check);
-  if (oc_node == nullptr)
+  if (oc_node == nullptr){
+    // cout << "unknown" << endl;
     return false;
-
-  float bbx_x0 = min(cur_pos.x(), next_pos.x()) - 0.4;
-  float bbx_x1 = max(cur_pos.x(), next_pos.x()) + 0.4;
-  float bbx_y0 = min(cur_pos.y(), next_pos.y()) - 0.4;
-  float bbx_y1 = max(cur_pos.y(), next_pos.y()) + 0.4;
-  float bbx_z0 = min(cur_pos.z(), next_pos.z()) - 0.1;
-  float bbx_z1 = max(cur_pos.z(), next_pos.z()) + 0.1;
-
-  for (float check_x = bbx_x0; check_x <= bbx_x1; check_x += 0.1) {
-    for (float check_y = bbx_y0; check_y <= bbx_y1; check_y += 0.1) {
-      for (float check_z = bbx_z0; check_z <= bbx_z1; check_z += 0.1) {
-        octomap::point3d check(check_x, check_y, check_z);
-        octomap::OcTreeNode *oc_node = ocmap->search(check);
-        if (oc_node != nullptr && ocmap->isNodeOccupied(oc_node)) {
-          return false;
-        }
-      }
-    }
   }
+
+  if (oc_node != nullptr && ocmap->isNodeOccupied(oc_node)) {
+    // cout << "occ" << endl;
+    return false;
+  }
+
   return true;
 }
 
