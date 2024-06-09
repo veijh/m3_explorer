@@ -157,7 +157,7 @@ int main(int argc, char **argv) {
   ros::init(argc, argv, "m3_explorer");
   ros::NodeHandle nh("");
 
-  double resolution = 0.1, sensor_range = 20.0;
+  double resolution = 0.1, sensor_range = 50.0;
 
   tf2_ros::TransformListener tf_listener(tf_buffer);
   ros::Duration(1.0).sleep(); // 等待tf2变换树准备好
@@ -295,9 +295,9 @@ int main(int argc, char **argv) {
     frontier_normal_visualize(frontiers, frontier_normal_pub);
 
     ros::Duration elapsed_time = ros::Time::now() - current_time;
-    cout << "frontier detect using time: " << elapsed_time.toSec() * 1000.0
+    cout << "[frontier detect]: " << elapsed_time.toSec() * 1000.0
          << " ms, ";
-    cout << "frontier voxel num is : " << frontiers.size() << endl;
+    cout << "[voxel num]: " << frontiers.size() << endl;
 
     vector<Cluster> cluster_vec;
     geometry_msgs::PoseArray vp_array;
@@ -311,7 +311,7 @@ int main(int argc, char **argv) {
       cluster_vec = dbscan_cluster(frontiers, 0.4, 8, 8, cluster_vis_pub);
       cluster_visualize(cluster_vec, cluster_pub);
 
-      cout << "frontier clusters generation using time: "
+      cout << "[frontier cluster]: "
            << (ros::Time::now() - current_time).toSec() * 1000.0 << " ms"
            << endl;
 
@@ -322,7 +322,7 @@ int main(int argc, char **argv) {
       vp_array = view_point_generate(cluster_vec, ocmap);
       view_point_pub.publish(vp_array);
 
-      cout << "view points generation using time: "
+      cout << "[viewpoint gen]: "
            << (ros::Time::now() - current_time).toSec() * 1000.0 << " ms"
            << endl;
 
@@ -342,7 +342,7 @@ int main(int argc, char **argv) {
         cout << "no space to explore !!" << endl;
       }
 
-      cout << "path planning using time: "
+      cout << "[tour planning]: "
            << (ros::Time::now() - current_time).toSec() * 1000.0 << " ms"
            << endl;
 
@@ -382,6 +382,7 @@ int main(int argc, char **argv) {
           switch (state) {
           case PLAN_FSM::PLAN: {
             cout << "Searching Path" << endl;
+            current_time = ros::Time::now();
             // Hybrid A* search path
             bool is_planned = planning.search_path(
                 ocmap,
@@ -391,7 +392,11 @@ int main(int argc, char **argv) {
                                 explore_path.poses[path_id].position.y,
                                 1.5),
                 cur_yaw);
+            cout << "[hastar]: "
+           << (ros::Time::now() - current_time).toSec() * 1000.0 << " ms"
+           << endl;
 
+            current_time = ros::Time::now();
             // re-search
             if(is_planned == false){
               is_planned = planning.search_path(
@@ -403,6 +408,9 @@ int main(int argc, char **argv) {
                                 1.5),
                 cur_yaw);
             }
+            cout << "[hastar replan]: "
+           << (ros::Time::now() - current_time).toSec() * 1000.0 << " ms"
+           << endl;
 
             if (is_planned) {
               // send traj

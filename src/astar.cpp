@@ -22,11 +22,11 @@ float Astar::astar_path_distance(const octomap::OcTree *ocmap,
   int count = 0;
   // state: 0 -> open; 1 -> closed
 
-  // unordered_map<AstarNode, int, NodeHash> node_state;
-  // unordered_map<AstarNode, float, NodeHash> node_g_score;
+  unordered_map<AstarNode, int, AstarNodeHash> node_state;
+  unordered_map<AstarNode, float, AstarNodeHash> node_g_score;
 
-  map<AstarNode, int, AstarMapCmp> node_state;
-  map<AstarNode, float, AstarMapCmp> node_g_score;
+  // map<AstarNode, int, AstarMapCmp> node_state;
+  // map<AstarNode, float, AstarMapCmp> node_g_score;
 
   AstarNode root(start_p);
   root.father_id = -1;
@@ -94,7 +94,7 @@ float Astar::astar_path_distance(const octomap::OcTree *ocmap,
 
     count++;
   }
-  cout << "[WARNING] no path !! from " << endl << start_p << endl << "to " << end_p << endl;
+  cout << "[WARNING] no path !! from " << endl << start_p << endl << "to " << endl << end_p << endl;
   return (end_p - start_p).norm();
 }
 

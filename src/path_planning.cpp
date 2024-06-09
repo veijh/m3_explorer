@@ -142,6 +142,7 @@ amtsp_path(const octomap::OcTree *ocmap, const geometry_msgs::PointStamped &curr
   par_file << "MTSP_OBJECTIVE = MINMAX" << endl;
   par_file << "MTSP_SOLUTION_FILE = " << mtsp_solution << endl;
   par_file << "SALESMEN = " << num_salesman << endl;
+  par_file << "MTSP_MIN_SIZE = 0" << endl;
   par_file.close();
 
   // create atsp file for lkh
@@ -191,7 +192,6 @@ amtsp_path(const octomap::OcTree *ocmap, const geometry_msgs::PointStamped &curr
                         view_points.poses.end());
 
   const int num_all_node = all_node.poses.size();
-  Astar astar;
 
   cout << "writing file !!" << endl;
   for (int i = 0; i < num_all_node; i++) {
@@ -207,9 +207,10 @@ amtsp_path(const octomap::OcTree *ocmap, const geometry_msgs::PointStamped &curr
       } else if (i == j) {
         atsp_file << 0 << " ";
       } else {
-        Eigen::Vector3f start_p(all_node.poses[i].position.x, all_node.poses[i].position.y, all_node.poses[i].position.z);
-        Eigen::Vector3f end_p(all_node.poses[j].position.x, all_node.poses[j].position.y, all_node.poses[j].position.z);
-        double edge_w = astar.astar_path_distance(ocmap, start_p, end_p);
+        // Eigen::Vector3f start_p(all_node.poses[i].position.x, all_node.poses[i].position.y, all_node.poses[i].position.z);
+        // Eigen::Vector3f end_p(all_node.poses[j].position.x, all_node.poses[j].position.y, all_node.poses[j].position.z);
+        // double edge_w = astar.astar_path_distance(ocmap, start_p, end_p);
+        double edge_w = hypot(all_node.poses[i].position.x - all_node.poses[j].position.x, all_node.poses[i].position.y - all_node.poses[j].position.y);
         atsp_file << (int)(edge_w * 100.0) << " ";
       }
     }

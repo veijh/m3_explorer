@@ -9,13 +9,13 @@
 #include <string>
 #include <unordered_map>
 
-const float MAX_VEL = 1.0;
+const float MAX_VEL = 0.5;
 const float MAX_ACC = 1.0;
 
 bool Hastar::search_path(const octomap::OcTree *ocmap,
                          const Eigen::Vector3f &start_p,
                          const Eigen::Vector3f &end_p, const float &yaw) {
-  vector<float> omega = {-1.0, -0.6, -0.3, 0.0, 0.3, 0.6, 1.0};
+  vector<float> omega = {-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0};
 
   priority_queue<PathNode, vector<PathNode>, NodeCmp> hastar_q;
   vector<PathNode> closed_list;
@@ -23,11 +23,11 @@ bool Hastar::search_path(const octomap::OcTree *ocmap,
   int count = 0;
   // state: 0 -> open; 1 -> closed
 
-  // unordered_map<PathNode, int, NodeHash> node_state;
-  // unordered_map<PathNode, float, NodeHash> node_g_score;
+  unordered_map<PathNode, int, NodeHash> node_state;
+  unordered_map<PathNode, float, NodeHash> node_g_score;
 
-  map<PathNode, int, MapCmp> node_state;
-  map<PathNode, float, MapCmp> node_g_score;
+  // map<PathNode, int, MapCmp> node_state;
+  // map<PathNode, float, MapCmp> node_g_score;
 
   PathNode root(start_p, yaw);
   root.father_id = -1;
