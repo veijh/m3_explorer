@@ -209,6 +209,7 @@ amtsp_path(const octomap::OcTree *ocmap, const geometry_msgs::PointStamped &curr
       } else {
         // Eigen::Vector3f start_p(all_node.poses[i].position.x, all_node.poses[i].position.y, all_node.poses[i].position.z);
         // Eigen::Vector3f end_p(all_node.poses[j].position.x, all_node.poses[j].position.y, all_node.poses[j].position.z);
+        // Astar astar;
         // double edge_w = astar.astar_path_distance(ocmap, start_p, end_p);
         double edge_w = hypot(all_node.poses[i].position.x - all_node.poses[j].position.x, all_node.poses[i].position.y - all_node.poses[j].position.y);
         atsp_file << (int)(edge_w * 100.0) << " ";

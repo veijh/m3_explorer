@@ -16,13 +16,13 @@ public:
   AstarNode(const Eigen::Vector3f &position) { position_ = position; }
   // 用于unordered_map
   bool operator==(const AstarNode &n) const {
-    int x0 = (int)(position_.x() / 0.1);
-    int y0 = (int)(position_.y() / 0.1);
-    int z0 = (int)(position_.z() / 0.1);
+    int x0 = static_cast<int>(round(position_.x() / 0.1));
+    int y0 = static_cast<int>(round(position_.y() / 0.1));
+    int z0 = static_cast<int>(round(position_.z() / 0.1));
 
-    int x1 = (int)(n.position_.x() / 0.1);
-    int y1 = (int)(n.position_.y() / 0.1);
-    int z1 = (int)(n.position_.z() / 0.1);
+    int x1 = static_cast<int>(round(n.position_.x() / 0.1));
+    int y1 = static_cast<int>(round(n.position_.y() / 0.1));
+    int z1 = static_cast<int>(round(n.position_.z() / 0.1));
 
     return x0 == x1 && y0 == y1 && z0 == z1;
   }
@@ -38,13 +38,13 @@ struct AstarNodeCmp {
 // 用于map
 struct AstarMapCmp {
   bool operator()(const AstarNode &lhs, const AstarNode &rhs) {
-    int x0 = (int)(lhs.position_.x() / 0.1);
-    int y0 = (int)(lhs.position_.y() / 0.1);
-    int z0 = (int)(lhs.position_.z() / 0.1);
+    int x0 = static_cast<int>(round(lhs.position_.x() / 0.1));
+    int y0 = static_cast<int>(round(lhs.position_.y() / 0.1));
+    int z0 = static_cast<int>(round(lhs.position_.z() / 0.1));
 
-    int x1 = (int)(rhs.position_.x() / 0.1);
-    int y1 = (int)(rhs.position_.y() / 0.1);
-    int z1 = (int)(rhs.position_.z() / 0.1);
+    int x1 = static_cast<int>(round(rhs.position_.x() / 0.1));
+    int y1 = static_cast<int>(round(rhs.position_.y() / 0.1));
+    int z1 = static_cast<int>(round(rhs.position_.z() / 0.1));
 
     if (x0 != x1)
       return x0 < x1;
@@ -57,17 +57,17 @@ struct AstarMapCmp {
 // 用于unordered_map
 struct AstarNodeHash {
   size_t operator()(const AstarNode &node) const {
-    // (x,y) max_range: [-100, 100], signed 10 bit
-    // z max_range: [-5, 5], signed 7 bit
-    // yaw max_range: [-12, 12], signed 5 bit
+    // x max_range: [-50, 50], 10 bit
+    // y max_range: [-50, 50], 10 bit
+    // z max_range: [0, 3], 5 bit
     // key = x  y   z
-    // bit =  31-22   21-12   11-5
-    int x0 = ((int)(node.position_.x() / 0.1)) & 0x3FF;
-    x0 <<= 22;
-    int y0 = ((int)(node.position_.y() / 0.1)) & 0x3FF;
-    y0 <<= 12;
-    int z0 = ((int)(node.position_.z() / 0.1)) & 0x7F;
-    z0 <<= 5;
+    // bit = 24-15   14-5    4-0
+    int x0 = static_cast<int>(round(node.position_.x() / 0.1)) & 0x3FF;
+    x0 <<= 15;
+    int y0 = static_cast<int>(round(node.position_.y() / 0.1)) & 0x3FF;
+    y0 <<= 5;
+    int z0 = static_cast<int>(round(node.position_.z() / 0.1)) & 0x1F;
+    z0 <<= 0;
 
     int key = x0 | y0 | z0;
     return hash<int>()(key);

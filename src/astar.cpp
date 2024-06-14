@@ -61,7 +61,6 @@ float Astar::astar_path_distance(const octomap::OcTree *ocmap,
     // expansion
     Eigen::Vector3f next_pos;
 
-    float next_yaw;
     for (int i = 0; i < expand_offset.size(); ++i) {
       // cin.get();
       next_pos = node.position_ + expand_offset[i];

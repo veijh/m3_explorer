@@ -159,6 +159,7 @@ add_executable(analyze src/analyze.cpp)
 add_executable(control_test src/control_test.cpp src/hastar.cpp src/astar.cpp)
 add_executable(mavros_ctrl src/mavros_ctrl.cpp)
 add_executable(map_merge src/map_merge.cpp)
+add_executable(frontier_test src/frontier_test.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -193,6 +194,11 @@ target_link_libraries(mavros_ctrl
 
 target_link_libraries(map_merge
   ${catkin_LIBRARIES}
+)
+
+target_link_libraries(frontier_test
+  ${catkin_LIBRARIES}
+  ${PROJECT_NAME}_lib
 )
 
 #############

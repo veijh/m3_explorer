@@ -169,8 +169,8 @@ void frontier_visualize(set<QuadMesh> &frontiers, const double &mesh_thickness,
   marker.pose.orientation.y = 0.0;
   marker.pose.orientation.z = 0.0;
   std_msgs::ColorRGBA color;
-  color.r = 1.0;
-  color.g = 0.0;
+  color.r = 0.0;
+  color.g = 1.0;
   color.b = 0.0;
   color.a = 1.0;
   marker.color = color;
