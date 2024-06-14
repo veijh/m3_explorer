@@ -5,6 +5,7 @@
 #include <geometry_msgs/PointStamped.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <nav_msgs/Odometry.h>
+#include <Eigen/Dense>
 #include "fstream"
 
 using namespace std;
@@ -29,8 +30,18 @@ nav_msgs::Odometry uav0_odom;
 nav_msgs::Odometry uav1_odom;
 nav_msgs::Odometry uav2_odom;
 
+nav_msgs::Odometry last_uav0_odom;
+nav_msgs::Odometry last_uav1_odom;
+nav_msgs::Odometry last_uav2_odom;
+
+bool init0 = false, init1 = false, init2 = false;
+
 void odom0_cb(const nav_msgs::Odometry::ConstPtr& msg)
 {
+  if(!init0) {
+    init0 = true;
+    last_uav0_odom = *msg;
+  }
   uav0_odom = *msg;
   geometry_msgs::Point p;
   p.x = uav0_odom.pose.pose.position.x;
@@ -42,6 +53,10 @@ void odom0_cb(const nav_msgs::Odometry::ConstPtr& msg)
 
 void odom1_cb(const nav_msgs::Odometry::ConstPtr& msg)
 {
+  if(!init1) {
+    init1 = true;
+    last_uav1_odom = *msg;
+  }
   uav1_odom = *msg;
   geometry_msgs::Point p;
   p.x = uav1_odom.pose.pose.position.x;
@@ -53,11 +68,15 @@ void odom1_cb(const nav_msgs::Odometry::ConstPtr& msg)
 
 void odom2_cb(const nav_msgs::Odometry::ConstPtr& msg)
 {
-  uav_odom = *msg;
+  if(!init2) {
+    init2 = true;
+    last_uav2_odom = *msg;
+  }
+  uav2_odom = *msg;
   geometry_msgs::Point p;
-  p.x = uav_odom.pose.pose.position.x;
-  p.y = uav_odom.pose.pose.position.y;
-  p.z = uav_odom.pose.pose.position.z;
+  p.x = uav2_odom.pose.pose.position.x;
+  p.y = uav2_odom.pose.pose.position.y;
+  p.z = uav2_odom.pose.pose.position.z;
   line2_strip.points.push_back(p);
   marker2_pub.publish(line2_strip);
 }
@@ -78,7 +97,27 @@ void timerCallback(const ros::TimerEvent&)
       }
     }
   }
-  outputFile << count << ", " << hypot(uav0_odom) << endl;
+  
+  Eigen::Vector3f p0(uav0_odom.pose.pose.position.x, uav0_odom.pose.pose.position.y, uav0_odom.pose.pose.position.z);
+  Eigen::Vector3f last_p0(last_uav0_odom.pose.pose.position.x, last_uav0_odom.pose.pose.position.y, last_uav0_odom.pose.pose.position.z);
+  Eigen::Vector3f p1(uav1_odom.pose.pose.position.x, uav1_odom.pose.pose.position.y, uav1_odom.pose.pose.position.z);
+  Eigen::Vector3f last_p1(last_uav1_odom.pose.pose.position.x, last_uav1_odom.pose.pose.position.y, last_uav1_odom.pose.pose.position.z);
+  Eigen::Vector3f p2(uav2_odom.pose.pose.position.x, uav2_odom.pose.pose.position.y, uav2_odom.pose.pose.position.z);
+  Eigen::Vector3f last_p2(last_uav2_odom.pose.pose.position.x, last_uav2_odom.pose.pose.position.y, last_uav2_odom.pose.pose.position.z);
+
+  dis0 += (p0 - last_p0).norm();
+  dis1 += (p1 - last_p1).norm();
+  dis2 += (p2 - last_p2).norm();
+
+  Eigen::Vector3f v0(uav0_odom.twist.twist.linear.x, uav0_odom.twist.twist.linear.y, uav0_odom.twist.twist.linear.z);
+  Eigen::Vector3f v1(uav1_odom.twist.twist.linear.x, uav1_odom.twist.twist.linear.y, uav1_odom.twist.twist.linear.z);
+  Eigen::Vector3f v2(uav2_odom.twist.twist.linear.x, uav2_odom.twist.twist.linear.y, uav2_odom.twist.twist.linear.z);
+  outputFile << count << ", " << v0.norm() << ", " << v1.norm() << ", " << v2.norm() << 
+  ", " << dis0 << ", " << dis1 << ", " << dis2 << endl;
+
+  last_uav0_odom = uav0_odom;
+  last_uav1_odom = uav1_odom;
+  last_uav2_odom = uav2_odom;
 }
 
 
@@ -87,11 +126,13 @@ int main(int argc, char** argv){
   ros::NodeHandle nh("");
   // get octomap
   ros::Subscriber octomap_sub = nh.subscribe<octomap_msgs::Octomap>("/merged_map", 1, octomap_cb);
-  ros::Subscriber odom_sub = nh.subscribe<nav_msgs::Odometry>("/uav0/mavros/local_position/odom", 1, odom0_cb);
-  ros::Subscriber odom_sub = nh.subscribe<nav_msgs::Odometry>("/uav1/mavros/local_position/odom", 1, odom1_cb);
-  ros::Subscriber odom_sub = nh.subscribe<nav_msgs::Odometry>("/uav2/mavros/local_position/odom", 1, odom2_cb);
+  ros::Subscriber odom0_sub = nh.subscribe<nav_msgs::Odometry>("/uav0/mavros/local_position/odom", 1, odom0_cb);
+  ros::Subscriber odom1_sub = nh.subscribe<nav_msgs::Odometry>("/uav1/mavros/local_position/odom", 1, odom1_cb);
+  ros::Subscriber odom2_sub = nh.subscribe<nav_msgs::Odometry>("/uav2/mavros/local_position/odom", 1, odom2_cb);
 
-  marker_pub = nh.advertise<visualization_msgs::Marker>("visualization_marker", 10);
+  marker0_pub = nh.advertise<visualization_msgs::Marker>("visualization_marker0", 10);
+  marker1_pub = nh.advertise<visualization_msgs::Marker>("visualization_marker1", 10);
+  marker2_pub = nh.advertise<visualization_msgs::Marker>("visualization_marker2", 10);
 
   ros::Timer timer = nh.createTimer(ros::Duration(1.0), timerCallback);
 
