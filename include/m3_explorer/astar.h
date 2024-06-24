@@ -9,8 +9,8 @@ using namespace std;
 class AstarNode {
 public:
   Eigen::Vector3f position_;
-  int father_id;
-  float f_score, g_score, h_score;
+  int father_id_;
+  float f_score_, g_score_, h_score_;
 
   AstarNode() { position_ = Eigen::Vector3f::Zero(); }
   AstarNode(const Eigen::Vector3f &position) { position_ = position; }
@@ -31,7 +31,7 @@ public:
 // 用于优先队列
 struct AstarNodeCmp {
   bool operator()(const AstarNode &lhs, const AstarNode &rhs) {
-    return lhs.f_score > rhs.f_score;
+    return lhs.f_score_ > rhs.f_score_;
   }
 };
 

@@ -20,19 +20,21 @@ float Astar::astar_path_distance(const octomap::OcTree *ocmap,
   vector<AstarNode> closed_list;
   // size of closed_list, maybe faster than closed_list.size()
   int count = 0;
-  // state: 0 -> open; 1 -> closed
 
+  // state: 0 -> open; 1 -> closed
   unordered_map<AstarNode, int, AstarNodeHash> node_state;
   unordered_map<AstarNode, float, AstarNodeHash> node_g_score;
 
   // map<AstarNode, int, AstarMapCmp> node_state;
   // map<AstarNode, float, AstarMapCmp> node_g_score;
 
+  bool is_path_found = false;
+
   AstarNode root(start_p);
-  root.father_id = -1;
-  root.g_score = 0.0;
-  root.h_score = calc_h_score(root.position_, end_p);
-  root.f_score = root.g_score + root.h_score;
+  root.father_id_ = -1;
+  root.g_score_ = 0.0;
+  root.h_score_ = calc_h_score(root.position_, end_p);
+  root.f_score_ = root.g_score_ + root.h_score_;
   astar_q.push(root);
   node_state[root] = 0;
   node_g_score[root] = 0.0;
@@ -52,10 +54,11 @@ float Astar::astar_path_distance(const octomap::OcTree *ocmap,
     closed_list.emplace_back(node);
     node_state[node] = 1;
 
-    // cout << (node.position_) << ", " << node.f_score << endl << endl;
+    // cout << (node.position_) << ", " << node.f_score_ << endl << endl;
 
     if ((node.position_ - end_p).norm() < 0.2) {
-      return node.g_score + (node.position_ - end_p).norm();
+      is_path_found = true;
+      break;
     }
 
     // expansion
@@ -79,22 +82,44 @@ float Astar::astar_path_distance(const octomap::OcTree *ocmap,
         node_state[next_node] = 0;
       } else {
         if (node_state[next_node] == 0 &&
-            node.g_score + 0.2 > node_g_score[next_node]) {
+            node.g_score_ + 0.2 > node_g_score[next_node]) {
           continue;
         }
       }
-      next_node.father_id = count;
-      next_node.h_score = calc_h_score(next_node.position_, end_p);
-      next_node.g_score = node.g_score + 0.2;
-      node_g_score[next_node] = next_node.g_score;
-      next_node.f_score = next_node.g_score + next_node.h_score;
+      next_node.father_id_ = count;
+      next_node.h_score_ = calc_h_score(next_node.position_, end_p);
+      next_node.g_score_ = node.g_score_ + 0.2;
+      node_g_score[next_node] = next_node.g_score_;
+      next_node.f_score_ = next_node.g_score_ + next_node.h_score_;
       astar_q.push(next_node);
     }
 
     count++;
   }
-  cout << "[WARNING] no path !! from " << endl << start_p << endl << "to " << endl << end_p << endl;
-  return (end_p - start_p).norm();
+
+  if (is_path_found) {
+    path.clear();
+
+    float end_yaw = atan2(end_p.y() - closed_list[count].position.y(),
+                          end_p.x() - closed_list[count].position.x());
+    // add accurate end point
+    PathNode end(end_p, end_yaw);
+    path.push_back(end);
+
+    int id = closed_list[count].father_id;
+    path.push_back(closed_list[count]);
+    while (id != -1) {
+      path.push_back(closed_list[id]);
+      id = closed_list[id].father_id;
+    }
+    reverse(path.begin(), path.end());
+    cout << "[Hastar] waypoint generated!! waypoint num: " << path.size()
+         << endl;
+    return ;
+  } else {
+    cout << "[WARNING] no path !! from " << endl << start_p << endl << "to " << endl << end_p << endl;
+    return (end_p - start_p).norm();
+  }  
 }
 
 float Astar::calc_h_score(const Eigen::Vector3f &start_p,
@@ -119,9 +144,3 @@ bool Astar::is_path_valid(const octomap::OcTree *ocmap,
 
   return true;
 }
-
-// bool Hastar::is_path_valid(const octomap::OcTree* ocmap, const
-// Eigen::Vector3f& cur_pos, const Eigen::Vector3f& next_pos)
-// {
-//     return true;
-// }
