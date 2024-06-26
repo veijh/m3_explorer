@@ -12,9 +12,9 @@
 float Astar::astar_path_distance(const octomap::OcTree *ocmap,
                                  const Eigen::Vector3f &start_p,
                                  const Eigen::Vector3f &end_p) {
-  vector<Eigen::Vector3f> expand_offset = {
-      {0.2, 0.0, 0.0}, {-0.2, 0.0, 0.0}, {0.0, 0.2, 0.0},   {0.0, -0.2, 0.0},
-      {0.0, 0.0, 0.2}, {0.0, 0.0, -0.2}};
+  vector<Eigen::Vector3f> expand_offset = {{0.2, 0.0, 0.0}, {-0.2, 0.0, 0.0},
+                                           {0.0, 0.2, 0.0}, {0.0, -0.2, 0.0},
+                                           {0.0, 0.0, 0.2}, {0.0, 0.0, -0.2}};
 
   priority_queue<AstarNode, vector<AstarNode>, AstarNodeCmp> astar_q;
   vector<AstarNode> closed_list;
@@ -69,10 +69,12 @@ float Astar::astar_path_distance(const octomap::OcTree *ocmap,
       next_pos = node.position_ + expand_offset[i];
       // cout << next_pos << endl;
       // check next node is valid
-      bool is_next_node_valid = is_path_valid(ocmap, node.position_, next_pos);
+      if (next_pos.z() > max_z_ || next_pos.z() < min_z_) {
+        continue;
+      }
 
+      bool is_next_node_valid = is_path_valid(ocmap, node.position_, next_pos);
       if (!is_next_node_valid) {
-        // cout << "not valid " << i << endl;
         continue;
       }
 
@@ -98,33 +100,40 @@ float Astar::astar_path_distance(const octomap::OcTree *ocmap,
   }
 
   if (is_path_found) {
-    path.clear();
-
-    float end_yaw = atan2(end_p.y() - closed_list[count].position.y(),
-                          end_p.x() - closed_list[count].position.x());
+    float distance = 0.0;
+    path_.clear();
     // add accurate end point
-    PathNode end(end_p, end_yaw);
-    path.push_back(end);
+    path_.emplace_back(end_p);
+    path_.emplace_back(closed_list[count]);
 
-    int id = closed_list[count].father_id;
-    path.push_back(closed_list[count]);
+    Eigen::Vector3f last = closed_list[count].position_;
+    distance += (last - end_p).norm();
+
+    int id = closed_list[count].father_id_;
     while (id != -1) {
-      path.push_back(closed_list[id]);
-      id = closed_list[id].father_id;
+      distance += (closed_list[id].position_ - last).norm();
+      last = closed_list[id].position_;
+
+      path_.emplace_back(closed_list[id]);
+      id = closed_list[id].father_id_;
     }
-    reverse(path.begin(), path.end());
-    cout << "[Hastar] waypoint generated!! waypoint num: " << path.size()
-         << endl;
-    return ;
+    reverse(path_.begin(), path_.end());
+    cout << "[Astar] waypoint generated!! waypoint num: " << path_.size()
+         << ", select node num: " << count << endl;
+    return distance;
   } else {
-    cout << "[WARNING] no path !! from " << endl << start_p << endl << "to " << endl << end_p << endl;
+    cout << "[WARNING] no path !! from " << endl
+         << start_p << endl
+         << "to " << endl
+         << end_p << endl;
     return (end_p - start_p).norm();
-  }  
+  }
 }
 
 float Astar::calc_h_score(const Eigen::Vector3f &start_p,
                           const Eigen::Vector3f &end_p) {
-  return (end_p - start_p).norm();
+  // return (end_p - start_p).norm();
+  return (end_p - start_p).lpNorm<1>();
 }
 
 bool Astar::is_path_valid(const octomap::OcTree *ocmap,
@@ -132,7 +141,7 @@ bool Astar::is_path_valid(const octomap::OcTree *ocmap,
                           const Eigen::Vector3f &next_pos) {
   octomap::point3d next_pos_check(next_pos.x(), next_pos.y(), next_pos.z());
   octomap::OcTreeNode *oc_node = ocmap->search(next_pos_check);
-  if (oc_node == nullptr){
+  if (oc_node == nullptr) {
     // cout << "unknown" << endl;
     return false;
   }

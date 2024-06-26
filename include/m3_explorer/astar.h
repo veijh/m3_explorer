@@ -3,6 +3,7 @@
 #include <Eigen/Dense>
 #include <octomap/octomap.h>
 #include <ros/ros.h>
+#include <vector>
 
 using namespace std;
 
@@ -75,7 +76,11 @@ struct AstarNodeHash {
 };
 
 class Astar {
+private:
+  float max_z_ = 2.5;
+  float min_z_ = 0.0;
 public:
+  std::vector<AstarNode> path_;
   float astar_path_distance(const octomap::OcTree *ocmap,
                             const Eigen::Vector3f &start_p,
                             const Eigen::Vector3f &end_p);
