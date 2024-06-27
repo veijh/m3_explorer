@@ -100,6 +100,11 @@ float OctoAstar::astar_path_distance(const octomap::OcTree *ocmap,
       next_pos = node.position_ + node_stk.top().size_ * expand_offset[i];
 
       std::stack<OctoNode> node_stk_copy(node_stk);
+      // search for free adjacent leaf node
+
+      // small node to big node, only add one node
+
+      // big node to small node, may add multi nodes
 
       // check next node is valid
       if (next_pos.z() > max_z_ || next_pos.z() < min_z_) {
