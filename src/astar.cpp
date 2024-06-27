@@ -15,9 +15,11 @@ float Astar::astar_path_distance(const octomap::OcTree *ocmap,
   vector<Eigen::Vector3f> expand_offset = {{0.2, 0.0, 0.0}, {-0.2, 0.0, 0.0},
                                            {0.0, 0.2, 0.0}, {0.0, -0.2, 0.0},
                                            {0.0, 0.0, 0.2}, {0.0, 0.0, -0.2}};
+  const int expand_size = expand_offset.size();
 
   priority_queue<AstarNode, vector<AstarNode>, AstarNodeCmp> astar_q;
   vector<AstarNode> closed_list;
+  closed_list.reserve(99999);
   // size of closed_list, maybe faster than closed_list.size()
   int count = 0;
 
@@ -46,7 +48,7 @@ float Astar::astar_path_distance(const octomap::OcTree *ocmap,
     AstarNode node = astar_q.top();
     astar_q.pop();
     // add node to closed list
-    // 可以考虑将priority_queue替换为set，因为g值更新导致节点重复
+    // g值更新导致节点重复
     if (node_state[node] == 1) {
       continue;
     }
@@ -64,7 +66,7 @@ float Astar::astar_path_distance(const octomap::OcTree *ocmap,
     // expansion
     Eigen::Vector3f next_pos;
 
-    for (int i = 0; i < expand_offset.size(); ++i) {
+    for (int i = 0; i < expand_size; ++i) {
       // cin.get();
       next_pos = node.position_ + expand_offset[i];
       // cout << next_pos << endl;
@@ -133,14 +135,15 @@ float Astar::astar_path_distance(const octomap::OcTree *ocmap,
 float Astar::calc_h_score(const Eigen::Vector3f &start_p,
                           const Eigen::Vector3f &end_p) {
   // return (end_p - start_p).norm();
-  return (end_p - start_p).lpNorm<1>();
+  // return (end_p - start_p).lpNorm<1>();
+  Eigen::Vector3f delta = end_p - start_p;
+  return abs(delta.x()) + abs(delta.y()) + 10.0 * abs(delta.z());
 }
 
 bool Astar::is_path_valid(const octomap::OcTree *ocmap,
                           const Eigen::Vector3f &cur_pos,
                           const Eigen::Vector3f &next_pos) {
-  octomap::point3d next_pos_check(next_pos.x(), next_pos.y(), next_pos.z());
-  octomap::OcTreeNode *oc_node = ocmap->search(next_pos_check);
+  octomap::OcTreeNode *oc_node = ocmap->search(next_pos.x(), next_pos.y(), next_pos.z());
   if (oc_node == nullptr) {
     // cout << "unknown" << endl;
     return false;
