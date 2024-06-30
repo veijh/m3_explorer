@@ -4,6 +4,8 @@
 #include <octomap/octomap.h>
 #include <ros/ros.h>
 #include <vector>
+#include <queue>
+#include <unordered_map>
 
 class OctoNode {
 public:
@@ -17,8 +19,14 @@ public:
   OctoNode(octomap::OcTreeNode *node, Eigen::Vector3f center, float size)
       : node_(node), center_(center), size_(size), half_size_(0.5 * size) {
     Eigen::Vector3f offset(half_size_, half_size_, half_size_);
-    bbx_max_ = center - offset;
-    bbx_min_ = center + offset;
+    bbx_min_ = center_ - offset;
+    bbx_max_ = center_ + offset;
+  }
+  bool is_in_bbx(const Eigen::Vector3f& p){
+    bool is_x_in_bbx = (bbx_min_.x() < p.x()) && (p.x() < bbx_max_.x());
+    bool is_y_in_bbx = (bbx_min_.y() < p.y()) && (p.y() < bbx_max_.y());
+    bool is_z_in_bbx = (bbx_min_.z() < p.z()) && (p.z() < bbx_max_.z());
+    return is_x_in_bbx && is_y_in_bbx && is_z_in_bbx;
   }
 };
 
@@ -100,12 +108,20 @@ public:
                             const Eigen::Vector3f &start_p,
                             const Eigen::Vector3f &end_p);
   // search the node at p from top to bottom
-  std::stack<OctoNode> search_octonode(const octomap::OcTree *ocmap, const Eigen::Vector3f &p);
+  bool search_octonode(const octomap::OcTree *ocmap, const Eigen::Vector3f &p,
+                       std::stack<OctoNode> &node_stk);
   float calc_h_score(const Eigen::Vector3f &start_p,
                      const Eigen::Vector3f &end_p);
   bool is_path_valid(const octomap::OcTree *ocmap,
                      const Eigen::Vector3f &cur_pos,
                      const Eigen::Vector3f &next_pos);
+  bool add_node_to_q(
+    const octomap::OcTree *ocmap, const Eigen::Vector3f &next_pos,
+    const Eigen::Vector3f &end_p, AstarNode &node,
+    std::priority_queue<AstarNode, std::vector<AstarNode>, AstarNodeCmp>
+        &astar_q,
+    int &count, std::unordered_map<AstarNode, int, AstarNodeHash> &node_state,
+    std::unordered_map<AstarNode, float, AstarNodeHash> &node_g_score);
 };
 
 #endif

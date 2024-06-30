@@ -1,4 +1,5 @@
-#include "m3_explorer/astar.h"
+// #include "m3_explorer/astar.h"
+#include "m3_explorer/octo_astar.h"
 #include <Eigen/Dense>
 #include <chrono>
 #include <geometry_msgs/Point.h>
@@ -73,17 +74,21 @@ int main(int argc, char **argv) {
     if(ocmap->isNodeOccupied(start_node) || ocmap->isNodeOccupied(end_node)) continue;
 
     // A*寻路，并统计时间
-    Astar astar;
+    // Astar astar;
+    OctoAstar octo_astar;
     auto start_time = std::chrono::system_clock::now();
-    astar.astar_path_distance(ocmap, start_pt, end_pt);
+    // astar.astar_path_distance(ocmap, start_pt, end_pt);
+    octo_astar.astar_path_distance(ocmap, start_pt, end_pt);
     auto end_time = std::chrono::system_clock::now();
     std::chrono::duration<float, std::milli> elapsed = end_time - start_time;
-    cout << "[astar search] :" << elapsed.count() << " ms" << endl;
+    std::cout << "[astar search] :" << elapsed.count() << " ms" << std::endl;
     // 可视化轨迹
     waypoint.points.clear();
-    const int wp_num = astar.path_.size();
+    // const int wp_num = astar.path_.size();
+    const int wp_num = octo_astar.path_.size();
     for (int i = 0; i < wp_num; ++i) {
-      const Eigen::Vector3f pos = astar.path_[i].position_;
+      // const Eigen::Vector3f pos = astar.path_[i].position_;
+      const Eigen::Vector3f pos = octo_astar.path_[i].position_;
       geometry_msgs::Point wp_pos;
       wp_pos.x = pos.x();
       wp_pos.y = pos.y();

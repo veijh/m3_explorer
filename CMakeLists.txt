@@ -5,6 +5,7 @@ project(m3_explorer)
 # add_compile_options(-std=c++11)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+# add_definitions("-g")
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -144,6 +145,7 @@ add_library(${PROJECT_NAME}_lib
   src/kd_tree.cpp
   src/hastar.cpp
   src/astar.cpp
+  src/octo_astar.cpp
 )
 
 ## Add cmake target dependencies of the library

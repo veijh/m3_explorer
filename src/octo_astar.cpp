@@ -14,10 +14,18 @@ const std::vector<Eigen::Vector3f> center_offset = {
     {-1.0, -1.0, -1.0}, {1.0, -1.0, -1.0}, {-1.0, 1.0, -1.0}, {1.0, 1.0, -1.0},
     {-1.0, -1.0, 1.0},  {1.0, -1.0, 1.0},  {-1.0, 1.0, 1.0},  {1.0, 1.0, 1.0}};
 
-std::stack<OctoNode> OctoAstar::search_octonode(const octomap::OcTree *ocmap,
-                                                const Eigen::Vector3f &p) {
+const std::vector<Eigen::Vector3f> expand_offset = {
+    {-1.0, 0.0, 0.0}, {1.0, 0.0, 0.0},  {0.0, -1.0, 0.0},
+    {0.0, 1.0, 0.0},  {0.0, 0.0, -1.0}, {0.0, 0.0, 1.0}};
+
+const std::vector<std::vector<int>> adj_child = {{1, 3, 5, 7}, {0, 2, 4, 6},
+                                                 {2, 3, 6, 7}, {0, 1, 4, 5},
+                                                 {4, 5, 6, 7}, {0, 1, 2, 3}};
+
+bool OctoAstar::search_octonode(const octomap::OcTree *ocmap,
+                                const Eigen::Vector3f &p,
+                                std::stack<OctoNode> &node_stk) {
   octomap::OcTreeNode *node = ocmap->getRoot();
-  std::stack<OctoNode> node_stk;
   node_stk.emplace(node, Eigen::Vector3f(0.0, 0.0, 0.0), 0.1 * 65536);
   while (ocmap->nodeHasChildren(node_stk.top().node_)) {
     OctoNode node = node_stk.top();
@@ -25,25 +33,29 @@ std::stack<OctoNode> OctoAstar::search_octonode(const octomap::OcTree *ocmap,
     int child_id = 1 * (p.x() > node_center.x()) +
                    2 * (p.y() > node_center.y()) +
                    4 * (p.z() > node_center.z());
-    node_stk.emplace(ocmap->getNodeChild(node.node_, child_id),
-                     node_center +
-                         0.5 * node.half_size_ * center_offset[child_id],
-                     node.half_size_);
+    if (ocmap->nodeChildExists(node.node_, child_id)) {
+      node_stk.emplace(ocmap->getNodeChild(node.node_, child_id),
+                       node_center +
+                           0.5 * node.half_size_ * center_offset[child_id],
+                       node.half_size_);
+    } else {
+      return false;
+    }
   }
-  return node_stk;
+  return true;
 }
 
 float OctoAstar::astar_path_distance(const octomap::OcTree *ocmap,
-                                 const Eigen::Vector3f &start_p,
-                                 const Eigen::Vector3f &end_p) {
-  const std::vector<Eigen::Vector3f> expand_offset = {
-      {-1.0, 0.0, 0.0}, {1.0, 0.0, 0.0},  {0.0, -1.0, 0.0},
-      {0.0, 1.0, 0.0},  {0.0, 0.0, -1.0}, {0.0, 0.0, 1.0}};
+                                     const Eigen::Vector3f &start_p,
+                                     const Eigen::Vector3f &end_p) {
 
   const int expand_size = expand_offset.size();
 
   // search the node at start_p from top to bottom
-  std::stack<OctoNode> node_stk = search_octonode(ocmap, start_p);
+  std::stack<OctoNode> node_stk_init;
+  if (!search_octonode(ocmap, start_p, node_stk_init)) {
+    return 999.0;
+  }
 
   std::priority_queue<AstarNode, std::vector<AstarNode>, AstarNodeCmp> astar_q;
   std::vector<AstarNode> closed_list;
@@ -60,7 +72,7 @@ float OctoAstar::astar_path_distance(const octomap::OcTree *ocmap,
 
   bool is_path_found = false;
 
-  AstarNode root(node_stk.top().center_);
+  AstarNode root(node_stk_init.top().center_);
   root.father_id_ = -1;
   root.g_score_ = 0.0;
   root.h_score_ = calc_h_score(root.position_, end_p);
@@ -84,59 +96,99 @@ float OctoAstar::astar_path_distance(const octomap::OcTree *ocmap,
     closed_list.emplace_back(node);
     node_state[node] = 1;
 
-    // std::cout << (node.position_) << ", " << node.f_score_ << std::endl << std::endl;
+    // std::cout << (node.position_) << ", " << node.f_score_ << std::endl <<
+    // std::endl;
 
-    if ((node.position_ - end_p).norm() < 0.2) {
+    if ((node.position_ - end_p).norm() < 1.6) {
       is_path_found = true;
       break;
     }
 
-    std::stack<OctoNode> node_stk = search_octonode(ocmap, start_p);
+    std::stack<OctoNode> node_stk;
+    search_octonode(ocmap, node.position_, node_stk);
+    // std::cout << "stk size: " << node_stk.size() << std::endl
+    //           << "node size: " << node_stk.top().size_ << ", " << std::endl
+    //           << node_stk.top().center_ << std::endl;
 
     // expand in six directions
     Eigen::Vector3f next_pos;
     for (int i = 0; i < expand_size; ++i) {
       // cin.get();
+      std::stack<OctoNode> node_stk_copy(node_stk);
       next_pos = node.position_ + node_stk.top().size_ * expand_offset[i];
 
-      std::stack<OctoNode> node_stk_copy(node_stk);
+      const int node_depth = node_stk_copy.size();
       // search for free adjacent leaf node
+      // go from bottom to top until bbx contains next_pos
+      node_stk_copy.pop();
+      while (!node_stk_copy.top().is_in_bbx(next_pos)) {
+        node_stk_copy.pop();
+      }
 
+      bool is_adj_node_null = false;
       // small node to big node, only add one node
-
-      // big node to small node, may add multi nodes
-
-      // check next node is valid
-      if (next_pos.z() > max_z_ || next_pos.z() < min_z_) {
-        continue;
-      }
-
-      // shift to the center of free leaf node
-      next_pos = ;
-
-      bool is_next_node_valid = is_path_valid(ocmap, node.position_, next_pos);
-      if (!is_next_node_valid) {
-        continue;
-      }
-
-      AstarNode next_node(next_pos);
-      // check if node is in open/closed list
-      if (node_state.find(next_node) == node_state.end()) {
-        node_state[next_node] = 0;
-      } else {
-        if (node_state[next_node] == 0 &&
-            node.g_score_ + 0.2 > node_g_score[next_node]) {
-          continue;
+      while (ocmap->nodeHasChildren(node_stk_copy.top().node_) &&
+             node_stk_copy.size() < node_depth) {
+        OctoNode node = node_stk_copy.top();
+        Eigen::Vector3f node_center = node.center_;
+        int child_id = 1 * (next_pos.x() > node_center.x()) +
+                       2 * (next_pos.y() > node_center.y()) +
+                       4 * (next_pos.z() > node_center.z());
+        if (ocmap->nodeChildExists(node.node_, child_id)) {
+          node_stk_copy.emplace(ocmap->getNodeChild(node.node_, child_id),
+                                node_center + 0.5 * node.half_size_ *
+                                                  center_offset[child_id],
+                                node.half_size_);
+        } else {
+          is_adj_node_null = true;
+          break;
         }
       }
-      next_node.father_id_ = count;
-      next_node.h_score_ = calc_h_score(next_node.position_, end_p);
-      next_node.g_score_ = node.g_score_ + 0.2;
-      node_g_score[next_node] = next_node.g_score_;
-      next_node.f_score_ = next_node.g_score_ + next_node.h_score_;
-      astar_q.push(next_node);
-    }
 
+      if (is_adj_node_null) {
+        continue;
+      }
+
+      // big node to small node, may add multi nodes
+      if (ocmap->nodeHasChildren(node_stk_copy.top().node_)) {
+        // bfs
+        std::queue<OctoNode> bfs_q;
+        bfs_q.push(node_stk_copy.top());
+        while (!bfs_q.empty()) {
+          OctoNode bfs_node = bfs_q.front();
+          bfs_q.pop();
+          if (!ocmap->nodeHasChildren(bfs_node.node_)) {
+            next_pos = bfs_node.center_;
+            if(!ocmap->isNodeOccupied(bfs_node.node_)){
+              add_node_to_q(ocmap, next_pos, end_p, node, astar_q, count,
+                            node_state, node_g_score);
+            }
+            continue;
+          }
+          for (int index = 0; index < 4; ++index) {
+            if (ocmap->nodeChildExists(bfs_node.node_, adj_child[i][index])) {
+              octomap::OcTreeNode *childe_node =
+                  ocmap->getNodeChild(bfs_node.node_, adj_child[i][index]);
+              if (ocmap->isNodeOccupied(childe_node)) {
+                continue;
+              }
+              bfs_q.emplace(childe_node,
+                            bfs_node.center_ +
+                                0.5 * bfs_node.half_size_ *
+                                    center_offset[adj_child[i][index]],
+                            bfs_node.half_size_);
+            }
+          }
+        }
+      } else {
+        // shift to the center of free leaf node
+        next_pos = node_stk_copy.top().center_;
+        if(!ocmap->isNodeOccupied(node_stk_copy.top().node_)){
+          add_node_to_q(ocmap, next_pos, end_p, node, astar_q, count, node_state,
+                        node_g_score);
+        }
+      }
+    }
     count++;
   }
 
@@ -160,19 +212,19 @@ float OctoAstar::astar_path_distance(const octomap::OcTree *ocmap,
     }
     reverse(path_.begin(), path_.end());
     std::cout << "[Astar] waypoint generated!! waypoint num: " << path_.size()
-         << ", select node num: " << count << std::endl;
+              << ", select node num: " << count << std::endl;
     return distance;
   } else {
     std::cout << "[WARNING] no path !! from " << std::endl
-         << start_p << std::endl
-         << "to " << std::endl
-         << end_p << std::endl;
+              << start_p << std::endl
+              << "to " << std::endl
+              << end_p << std::endl;
     return (end_p - start_p).norm();
   }
 }
 
 float OctoAstar::calc_h_score(const Eigen::Vector3f &start_p,
-                          const Eigen::Vector3f &end_p) {
+                              const Eigen::Vector3f &end_p) {
   // return (end_p - start_p).norm();
   // return (end_p - start_p).lpNorm<1>();
   Eigen::Vector3f delta = end_p - start_p;
@@ -180,24 +232,71 @@ float OctoAstar::calc_h_score(const Eigen::Vector3f &start_p,
 }
 
 bool OctoAstar::is_path_valid(const octomap::OcTree *ocmap,
-                          const Eigen::Vector3f &cur_pos,
-                          const Eigen::Vector3f &next_pos) {
-  octomap::point3d bbx_min;
-  bbx_min.x() = std::min(cur_pos.x(), next_pos.x()) - 0.3;
-  bbx_min.y() = std::min(cur_pos.y(), next_pos.y()) - 0.3;
-  bbx_min.z() = std::min(cur_pos.z(), next_pos.z()) - 0.2;
-  octomap::point3d bbx_max;
-  bbx_max.x() = std::max(cur_pos.x(), next_pos.x()) + 0.3;
-  bbx_max.y() = std::max(cur_pos.y(), next_pos.y()) + 0.3;
-  bbx_max.z() = std::max(cur_pos.z(), next_pos.z()) + 0.2;
+                              const Eigen::Vector3f &cur_pos,
+                              const Eigen::Vector3f &next_pos) {
+  // octomap::point3d bbx_min(std::min(cur_pos.x(), next_pos.x()) - 0.2,
+  //                          std::min(cur_pos.y(), next_pos.y()) - 0.2,
+  //                          std::min(cur_pos.z(), next_pos.z()) - 0.1);
+  // octomap::point3d bbx_max(std::max(cur_pos.x(), next_pos.x()) + 0.2,
+  //                          std::max(cur_pos.y(), next_pos.y()) + 0.2,
+  //                          std::max(cur_pos.z(), next_pos.z()) + 0.1);
 
-  for (octomap::OcTree::leaf_bbx_iterator
-           it = ocmap->begin_leafs_bbx(bbx_min, bbx_max),
-           end = ocmap->end_leafs_bbx();
-       it != end; ++it) {
-    if (ocmap->isNodeOccupied(*it)) {
+  // for (octomap::OcTree::leaf_bbx_iterator
+  //          it = ocmap->begin_leafs_bbx(bbx_min, bbx_max),
+  //          end = ocmap->end_leafs_bbx();
+  //      it != end; ++it) {
+  //   if (ocmap->isNodeOccupied(*it)) {
+  //     return false;
+  //   }
+  // }
+  // return true;
+  octomap::OcTreeNode *oc_node = ocmap->search(next_pos.x(), next_pos.y(), next_pos.z());
+  if (oc_node == nullptr) {
+    // cout << "unknown" << endl;
+    return false;
+  }
+
+  if (oc_node != nullptr && ocmap->isNodeOccupied(oc_node)) {
+    // cout << "occ" << endl;
+    return false;
+  }
+
+  return true;
+}
+
+bool OctoAstar::add_node_to_q(
+    const octomap::OcTree *ocmap, const Eigen::Vector3f &next_pos,
+    const Eigen::Vector3f &end_p, AstarNode &node,
+    std::priority_queue<AstarNode, std::vector<AstarNode>, AstarNodeCmp>
+        &astar_q,
+    int &count, std::unordered_map<AstarNode, int, AstarNodeHash> &node_state,
+    std::unordered_map<AstarNode, float, AstarNodeHash> &node_g_score) {
+  // check next node is valid
+  if (next_pos.z() > max_z_ || next_pos.z() < min_z_) {
+    return false;
+  }
+
+  // bool is_next_node_valid = is_path_valid(ocmap, node.position_, next_pos);
+  // if (!is_next_node_valid) {
+  //   return false;
+  // }
+
+  const float delta_g = (next_pos - node.position_).norm();
+  AstarNode next_node(next_pos);
+  // check if node is in open/closed list
+  if (node_state.find(next_node) == node_state.end()) {
+    node_state[next_node] = 0;
+  } else {
+    if (node_state[next_node] == 0 &&
+        node.g_score_ + delta_g > node_g_score[next_node]) {
       return false;
     }
   }
+  next_node.father_id_ = count;
+  next_node.h_score_ = calc_h_score(next_node.position_, end_p);
+  next_node.g_score_ = node.g_score_ + delta_g;
+  node_g_score[next_node] = next_node.g_score_;
+  next_node.f_score_ = next_node.g_score_ + next_node.h_score_;
+  astar_q.push(next_node);
   return true;
 }
