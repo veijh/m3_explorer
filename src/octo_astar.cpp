@@ -9,6 +9,7 @@
 #include <stack>
 #include <string>
 #include <unordered_map>
+#include <chrono>
 
 const std::vector<Eigen::Vector3f> center_offset = {
     {-1.0, -1.0, -1.0}, {1.0, -1.0, -1.0}, {-1.0, 1.0, -1.0}, {1.0, 1.0, -1.0},
@@ -82,7 +83,8 @@ float OctoAstar::astar_path_distance(const octomap::OcTree *ocmap,
   node_g_score[root] = 0.0;
 
   while (!astar_q.empty()) {
-    // cin.get();
+    // std::cin.get();
+    // auto start_time = std::chrono::system_clock::now();
     // std::cout << "top node: " << std::endl;
     // selection
     AstarNode node = astar_q.top();
@@ -104,20 +106,34 @@ float OctoAstar::astar_path_distance(const octomap::OcTree *ocmap,
       break;
     }
 
+    // auto end_time = std::chrono::system_clock::now();
+    // std::chrono::duration<float, std::nano> elapsed = end_time - start_time;
+    // std::cout << "[selection] :" << elapsed.count() << " ns, ";
+
+    // std::cin.get();
+    // start_time = std::chrono::system_clock::now();
+
     std::stack<OctoNode> node_stk;
     search_octonode(ocmap, node.position_, node_stk);
     // std::cout << "stk size: " << node_stk.size() << std::endl
-    //           << "node size: " << node_stk.top().size_ << ", " << std::endl
-    //           << node_stk.top().center_ << std::endl;
+    //           << "node size: " << node_stk.back().size_ << ", " << std::endl
+    //           << node_stk.back().center_ << std::endl;
+    const int node_depth = node_stk.size();
+
+    // end_time = std::chrono::system_clock::now();
+    // elapsed = end_time - start_time;
+    // std::cout << "[search] :" << elapsed.count() << " ns, ";
+
+    // std::cin.get();
+    // start_time = std::chrono::system_clock::now();
 
     // expand in six directions
-    Eigen::Vector3f next_pos;
     for (int i = 0; i < expand_size; ++i) {
       // cin.get();
+      Eigen::Vector3f next_pos = node.position_ + node_stk.top().size_ * expand_offset[i];
       std::stack<OctoNode> node_stk_copy(node_stk);
-      next_pos = node.position_ + node_stk.top().size_ * expand_offset[i];
+      // std::cout << "1" << std::endl;
 
-      const int node_depth = node_stk_copy.size();
       // search for free adjacent leaf node
       // go from bottom to top until bbx contains next_pos
       node_stk_copy.pop();
@@ -157,14 +173,18 @@ float OctoAstar::astar_path_distance(const octomap::OcTree *ocmap,
         while (!bfs_q.empty()) {
           OctoNode bfs_node = bfs_q.front();
           bfs_q.pop();
+          
           if (!ocmap->nodeHasChildren(bfs_node.node_)) {
             next_pos = bfs_node.center_;
-            if(!ocmap->isNodeOccupied(bfs_node.node_)){
+            // if(!ocmap->isNodeOccupied(bfs_node.node_)){
               add_node_to_q(ocmap, next_pos, end_p, node, astar_q, count,
                             node_state, node_g_score);
-            }
+            // }
             continue;
           }
+
+          if(bfs_node.size_ < 0.2) continue;
+
           for (int index = 0; index < 4; ++index) {
             if (ocmap->nodeChildExists(bfs_node.node_, adj_child[i][index])) {
               octomap::OcTreeNode *childe_node =
@@ -188,7 +208,13 @@ float OctoAstar::astar_path_distance(const octomap::OcTree *ocmap,
                         node_g_score);
         }
       }
+      // std::cout << "4" << std::endl;
     }
+    
+    // end_time = std::chrono::system_clock::now();
+    // elapsed = end_time - start_time;
+    // std::cout << "[expansion] :" << elapsed.count() << " ns" << std::endl;
+    
     count++;
   }
 
@@ -223,7 +249,7 @@ float OctoAstar::astar_path_distance(const octomap::OcTree *ocmap,
   }
 }
 
-float OctoAstar::calc_h_score(const Eigen::Vector3f &start_p,
+inline float OctoAstar::calc_h_score(const Eigen::Vector3f &start_p,
                               const Eigen::Vector3f &end_p) {
   // return (end_p - start_p).norm();
   // return (end_p - start_p).lpNorm<1>();
@@ -264,7 +290,7 @@ bool OctoAstar::is_path_valid(const octomap::OcTree *ocmap,
   return true;
 }
 
-bool OctoAstar::add_node_to_q(
+inline bool OctoAstar::add_node_to_q(
     const octomap::OcTree *ocmap, const Eigen::Vector3f &next_pos,
     const Eigen::Vector3f &end_p, AstarNode &node,
     std::priority_queue<AstarNode, std::vector<AstarNode>, AstarNodeCmp>

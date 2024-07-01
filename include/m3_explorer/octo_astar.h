@@ -16,7 +16,7 @@ public:
   float size_ = 0.0;
   float half_size_ = 0.0;
 
-  OctoNode(octomap::OcTreeNode *node, Eigen::Vector3f center, float size)
+  OctoNode(octomap::OcTreeNode *node, const Eigen::Vector3f& center, float size)
       : node_(node), center_(center), size_(size), half_size_(0.5 * size) {
     Eigen::Vector3f offset(half_size_, half_size_, half_size_);
     bbx_min_ = center_ - offset;
@@ -37,7 +37,7 @@ public:
   float f_score_, g_score_, h_score_;
 
   AstarNode() { position_ = Eigen::Vector3f::Zero(); }
-  AstarNode(const Eigen::Vector3f &position) { position_ = position; }
+  AstarNode(const Eigen::Vector3f &position) : position_(position) {}
   // 用于unordered_map
   bool operator==(const AstarNode &n) const {
     int x0 = static_cast<int>(round(position_.x() / 0.1));
@@ -94,6 +94,7 @@ struct AstarNodeHash {
     z0 <<= 0;
 
     int key = x0 | y0 | z0;
+    // return static_cast<size_t>(key);
     return std::hash<int>()(key);
   }
 };
@@ -110,12 +111,12 @@ public:
   // search the node at p from top to bottom
   bool search_octonode(const octomap::OcTree *ocmap, const Eigen::Vector3f &p,
                        std::stack<OctoNode> &node_stk);
-  float calc_h_score(const Eigen::Vector3f &start_p,
+  inline float calc_h_score(const Eigen::Vector3f &start_p,
                      const Eigen::Vector3f &end_p);
   bool is_path_valid(const octomap::OcTree *ocmap,
                      const Eigen::Vector3f &cur_pos,
                      const Eigen::Vector3f &next_pos);
-  bool add_node_to_q(
+  inline bool add_node_to_q(
     const octomap::OcTree *ocmap, const Eigen::Vector3f &next_pos,
     const Eigen::Vector3f &end_p, AstarNode &node,
     std::priority_queue<AstarNode, std::vector<AstarNode>, AstarNodeCmp>

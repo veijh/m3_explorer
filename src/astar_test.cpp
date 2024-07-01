@@ -64,10 +64,10 @@ int main(int argc, char **argv) {
 
     // astar test
     // 设定起点终点
-    Eigen::Vector3f start_pt = {xy(gen), xy(gen), z(gen)};
-    Eigen::Vector3f end_pt = {xy(gen), xy(gen), z(gen)};
-    // Eigen::Vector3f start_pt = {0.0, -8.0, 1.5};
-    // Eigen::Vector3f end_pt = {8.0, 0.0, 1.5};
+    // Eigen::Vector3f start_pt = {xy(gen), xy(gen), z(gen)};
+    // Eigen::Vector3f end_pt = {xy(gen), xy(gen), z(gen)};
+    Eigen::Vector3f start_pt = {0.0, -8.0, 1.5};
+    Eigen::Vector3f end_pt = {8.0, 0.0, 1.5};
     octomap::OcTreeNode *start_node = ocmap->search(start_pt.x(), start_pt.y(), start_pt.z());
     octomap::OcTreeNode *end_node = ocmap->search(end_pt.x(), end_pt.y(), end_pt.z());
     if(!start_node || !end_node) continue;
@@ -118,7 +118,7 @@ int main(int argc, char **argv) {
     //   box.color.r = 0.0;
     //   box.color.g = 0.5;
     //   box.color.b = 0.0;
-    //   box.color.a = 0.5;
+    //   box.color.a = 1.0;
     //   box.pose.position.x = it.getCoordinate().x();
     //   box.pose.position.y = it.getCoordinate().y();
     //   box.pose.position.z = it.getCoordinate().z();
