@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.0.2)
 project(m3_explorer)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
-# add_compile_options(-std=c++11)
+add_compile_options(-std=c++17)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 # add_definitions("-g")
@@ -28,7 +28,7 @@ find_package(catkin REQUIRED COMPONENTS
 find_package(Eigen3 REQUIRED)
 
 ## System dependencies are found with CMake's conventions
-# find_package(Boost REQUIRED COMPONENTS system)
+find_package(Boost REQUIRED)
 
 
 ## Uncomment this if the package has a setup.py. This macro ensures
@@ -146,6 +146,7 @@ add_library(${PROJECT_NAME}_lib
   src/hastar.cpp
   src/astar.cpp
   src/octo_astar.cpp
+  src/grid_astar.cpp
 )
 
 ## Add cmake target dependencies of the library
@@ -162,7 +163,8 @@ add_executable(control_test src/control_test.cpp src/hastar.cpp src/astar.cpp)
 add_executable(mavros_ctrl src/mavros_ctrl.cpp)
 add_executable(map_merge src/map_merge.cpp)
 add_executable(frontier_test src/frontier_test.cpp)
-add_executable(astar_test src/astar_test.cpp)
+add_executable(octo_astar_test src/octo_astar_test.cpp)
+add_executable(grid_astar_test src/grid_astar_test.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -204,9 +206,15 @@ target_link_libraries(frontier_test
   ${PROJECT_NAME}_lib
 )
 
-target_link_libraries(astar_test
+target_link_libraries(octo_astar_test
   ${catkin_LIBRARIES}
   ${PROJECT_NAME}_lib
+)
+
+target_link_libraries(grid_astar_test
+  ${catkin_LIBRARIES}
+  ${PROJECT_NAME}_lib
+  ${Boost_LIBRARIES}
 )
 
 #############
