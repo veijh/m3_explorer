@@ -1,4 +1,4 @@
-#include "m3_explorer/astar.h"
+#include "m3_explorer/octo_astar.h"
 #include <Eigen/Dense>
 #include <chrono>
 #include <geometry_msgs/Point.h>
@@ -17,7 +17,7 @@ void octomap_cb(const octomap_msgs::Octomap::ConstPtr &msg) {
 }
 
 int main(int argc, char **argv) {
-  ros::init(argc, argv, "astar_test");
+  ros::init(argc, argv, "octo_astar_test");
   ros::NodeHandle nh("");
 
   // get octomap
@@ -64,10 +64,10 @@ int main(int argc, char **argv) {
 
     // astar test
     // 设定起点终点
-    // Eigen::Vector3f start_pt = {xy(gen), xy(gen), z(gen)};
-    // Eigen::Vector3f end_pt = {xy(gen), xy(gen), z(gen)};
-    Eigen::Vector3f start_pt = {0.0, -8.0, 1.5};
-    Eigen::Vector3f end_pt = {8.0, 0.0, 1.5};
+    Eigen::Vector3f start_pt = {xy(gen), xy(gen), z(gen)};
+    Eigen::Vector3f end_pt = {xy(gen), xy(gen), z(gen)};
+    // Eigen::Vector3f start_pt = {0.0, -8.0, 1.5};
+    // Eigen::Vector3f end_pt = {8.0, 0.0, 1.5};
     octomap::OcTreeNode *start_node =
         ocmap->search(start_pt.x(), start_pt.y(), start_pt.z());
     octomap::OcTreeNode *end_node =
@@ -78,17 +78,17 @@ int main(int argc, char **argv) {
       continue;
 
     // A*寻路，并统计时间
-    Astar astar;
+    OctoAstar octo_astar(ocmap);
     auto start_time = std::chrono::system_clock::now();
-    astar.astar_path_distance(ocmap, start_pt, end_pt);
+    octo_astar.astar_path_distance(start_pt, end_pt);
     auto end_time = std::chrono::system_clock::now();
     std::chrono::duration<float, std::milli> elapsed = end_time - start_time;
     std::cout << "[astar search] :" << elapsed.count() << " ms" << std::endl;
     // 可视化轨迹
     waypoint.points.clear();
-    const int wp_num = astar.path_.size();
+    const int wp_num = octo_astar.path_.size();
     for (int i = 0; i < wp_num; ++i) {
-      const Eigen::Vector3f pos = astar.path_[i].position_;
+      const Eigen::Vector3f pos = octo_astar.path_[i]->position_;
       geometry_msgs::Point wp_pos;
       wp_pos.x = pos.x();
       wp_pos.y = pos.y();
