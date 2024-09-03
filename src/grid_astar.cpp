@@ -6,7 +6,7 @@
 
 namespace {
 constexpr float kFreeThreshold = 0.2;
-constexpr float kOccThreshold = 0.8;
+constexpr float kOccThreshold = 0.7;
 } // namespace
 
 const std::vector<Eigen::Vector3i> expand_offset = {
@@ -120,11 +120,7 @@ float GridAstar::AstarPathDistance(const Eigen::Vector3f &start_p,
                       GridAstarNodeCmp>
       astar_q;
 
-  std::vector<std::vector<std::vector<GridInfo>>> grid_info_(
-      num_grid_x, std::vector<std::vector<GridInfo>>(
-                      num_grid_y, std::vector<GridInfo>(num_grid_z)));
-  tracker.OutputPassingTime("Grid Info Init");
-  tracker.SetStartTime();
+  std::unordered_map<GridKey, GridInfo, GridHash> grid_info;
 
   bool is_path_found = false;
   int count = 0;
@@ -145,14 +141,12 @@ float GridAstar::AstarPathDistance(const Eigen::Vector3f &start_p,
   std::shared_ptr<GridAstarNode> astar_start = std::make_shared<GridAstarNode>(
       index_start_x, index_start_y, index_start_z);
   astar_start->father_node_ = nullptr;
-  grid_info_[index_start_x][index_start_y][index_start_z].g_score_ = 0.0;
-  grid_info_[index_start_x][index_start_y][index_start_z].h_score_ =
-      CalHeurScore(astar_start, end_p);
+  const GridKey start_key(index_start_x, index_start_y, index_start_z);
+  grid_info[start_key].g_score_ = 0.0;
+  grid_info[start_key].h_score_ = CalHeurScore(astar_start, end_p);
   astar_start->f_score_ =
-      grid_info_[index_start_x][index_start_y][index_start_z].g_score_ +
-      grid_info_[index_start_x][index_start_y][index_start_z].h_score_;
-  grid_info_[index_start_x][index_start_y][index_start_z].state_ =
-      GridInfo::AstarState::kOpen;
+      grid_info[start_key].g_score_ + grid_info[start_key].h_score_;
+  grid_info[start_key].state_ = GridInfo::AstarState::kOpen;
   astar_q.push(astar_start);
 
   std::shared_ptr<GridAstarNode> astar_end = nullptr;
@@ -167,15 +161,14 @@ float GridAstar::AstarPathDistance(const Eigen::Vector3f &start_p,
     const int cur_index_x = cur_node->index_x_;
     const int cur_index_y = cur_node->index_y_;
     const int cur_index_z = cur_node->index_z_;
+    const GridKey cur_key(cur_index_x, cur_index_y, cur_index_z);
 
     // Skip the same node due to the update of g_score.
-    if (grid_info_[cur_index_x][cur_index_y][cur_index_z].state_ ==
-        GridInfo::AstarState::kClose) {
+    if (grid_info[cur_key].state_ == GridInfo::AstarState::kClose) {
       continue;
     }
     // set node to closed
-    grid_info_[cur_index_x][cur_index_y][cur_index_z].state_ =
-        GridInfo::AstarState::kClose;
+    grid_info[cur_key].state_ = GridInfo::AstarState::kClose;
     if (cur_node->index_x_ == index_end_x &&
         cur_node->index_y_ == index_end_y &&
         cur_node->index_z_ == index_end_z) {
@@ -189,6 +182,7 @@ float GridAstar::AstarPathDistance(const Eigen::Vector3f &start_p,
       int next_index_x = offset.x() + cur_node->index_x_;
       int next_index_y = offset.y() + cur_node->index_y_;
       int next_index_z = offset.z() + cur_node->index_z_;
+      const GridKey next_key(next_index_x, next_index_y, next_index_z);
       // skip nodes that is out of range
       if (next_index_x < 0 || next_index_y < 0 || next_index_z < 0) {
         continue;
@@ -200,43 +194,31 @@ float GridAstar::AstarPathDistance(const Eigen::Vector3f &start_p,
       // only expand free nodes
       if (grid_map_[next_index_x][next_index_y][next_index_z] ==
               GridAstar::GridState::kFree &&
-          grid_info_[next_index_x][next_index_y][next_index_z].state_ !=
-              GridInfo::AstarState::kClose) {
+          grid_info[next_key].state_ != GridInfo::AstarState::kClose) {
         // Calculate GScore.
-        const float new_g_score =
-            grid_info_[cur_index_x][cur_index_y][cur_index_z].g_score_ +
-            resolution_;
+        const float new_g_score = grid_info[cur_key].g_score_ + resolution_;
         // Next node has not being visited.
-        if (grid_info_[next_index_x][next_index_y][next_index_z].state_ ==
-            GridInfo::AstarState::kNull) {
+        if (grid_info[next_key].state_ == GridInfo::AstarState::kNull) {
           std::shared_ptr<GridAstarNode> next_node =
               std::make_shared<GridAstarNode>(next_index_x, next_index_y,
                                               next_index_z);
           next_node->father_node_ = cur_node;
-          grid_info_[next_index_x][next_index_y][next_index_z].g_score_ =
-              new_g_score;
-          grid_info_[next_index_x][next_index_y][next_index_z].h_score_ =
-              CalHeurScore(next_node, end_p);
+          grid_info[next_key].g_score_ = new_g_score;
+          grid_info[next_key].h_score_ = CalHeurScore(next_node, end_p);
           // Calculate Fscore.
-          next_node->f_score_ =
-              new_g_score +
-              grid_info_[next_index_x][next_index_y][next_index_z].h_score_;
-          grid_info_[next_index_x][next_index_y][next_index_z].state_ =
-              GridInfo::AstarState::kOpen;
+          next_node->f_score_ = new_g_score + grid_info[next_key].h_score_;
+          grid_info[next_key].state_ = GridInfo::AstarState::kOpen;
           astar_q.push(next_node);
         } else {
           // Next node has being visited.
           std::shared_ptr<GridAstarNode> next_node =
               std::make_shared<GridAstarNode>(next_index_x, next_index_y,
                                               next_index_z);
-          if (new_g_score <
-              grid_info_[next_index_x][next_index_y][next_index_z].g_score_) {
+          if (new_g_score < grid_info[next_key].g_score_) {
             next_node->father_node_ = cur_node;
             // Update Gscore.
-            grid_info_[next_index_x][next_index_y][next_index_z].g_score_ =
-                new_g_score;
-            const float h_score =
-                grid_info_[next_index_x][next_index_y][next_index_z].h_score_;
+            grid_info[next_key].g_score_ = new_g_score;
+            const float h_score = grid_info[next_key].h_score_;
             // Update Fscore.
             next_node->f_score_ = new_g_score + h_score;
             astar_q.push(next_node);

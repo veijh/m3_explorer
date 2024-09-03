@@ -114,10 +114,10 @@ int main(int argc, char **argv) {
     track.OutputPassingTime("Visualize Map");
 
     // 设定起点终点
-    // Eigen::Vector3f start_pt = {xy(gen), xy(gen), z(gen)};
-    // Eigen::Vector3f end_pt = {xy(gen), xy(gen), z(gen)};
-    Eigen::Vector3f start_pt = {0.0, 0.0, 1.0};
-    Eigen::Vector3f end_pt = {2.0, 0.0, 1.0};
+    Eigen::Vector3f start_pt = {xy(gen), xy(gen), z(gen)};
+    Eigen::Vector3f end_pt = {xy(gen), xy(gen), z(gen)};
+    // Eigen::Vector3f start_pt = {0.0, 0.0, 1.0};
+    // Eigen::Vector3f end_pt = {2.0, 0.0, 1.0};
 
     // 检查是否起点、终点是否合法
     int index_start_x =
@@ -142,7 +142,7 @@ int main(int argc, char **argv) {
     // A*寻路，并统计时间
     track.SetStartTime();
     grid_astar.AstarPathDistance(start_pt, end_pt);
-    track.OutputPassingTime("Astar Search");
+    track.OutputPassingTime("--Astar Search Total--");
     // 可视化轨迹
     waypoint.points.clear();
     const std::vector<std::shared_ptr<GridAstarNode>> &path = grid_astar.path();
