@@ -8,6 +8,7 @@
 #include <random>
 #include <ros/ros.h>
 #include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
 
 octomap::OcTree *ocmap = nullptr;
 void octomap_cb(const octomap_msgs::Octomap::ConstPtr &msg) {
@@ -30,6 +31,18 @@ int main(int argc, char **argv) {
   // visualize map
   ros::Publisher node_pub =
       nh.advertise<visualization_msgs::Marker>("/leafnode", 10);
+
+  // visualize voxel
+  ros::Publisher voxel_pub =
+      nh.advertise<visualization_msgs::MarkerArray>("/voxel", 10);
+
+  // visualize voxel2D
+  ros::Publisher voxel2d_pub =
+      nh.advertise<visualization_msgs::MarkerArray>("/voxel2d", 10);
+
+  // visualize voxel3D
+  ros::Publisher voxel3d_pub =
+      nh.advertise<visualization_msgs::MarkerArray>("/voxel3d", 10);
 
   ros::Rate rate(0.5);
 
@@ -59,12 +72,25 @@ int main(int argc, char **argv) {
   waypoint.color.b = 1.0;
   waypoint.color.a = 1.0;
 
-  const float min_x = -11.0;
-  const float max_x = 11.0;
-  const float min_y = -11.0;
-  const float max_y = 11.0;
-  const float min_z = -1.0;
-  const float max_z = 4.0;
+  visualization_msgs::MarkerArray voxels;
+  visualization_msgs::Marker voxel;
+  voxel.header.frame_id = "map";
+  voxel.header.stamp = ros::Time::now();
+  voxel.ns = "voxel";
+  voxel.action = visualization_msgs::Marker::ADD;
+  voxel.pose.orientation.w = 1.0;
+  voxel.type = visualization_msgs::Marker::CUBE;
+  voxel.scale.x = 0.06;
+  voxel.color.r = 0.5;
+  voxel.color.g = 1.0;
+  voxel.color.a = 1.0;
+
+  const float min_x = -10.5;
+  const float max_x = 10.5;
+  const float min_y = -10.5;
+  const float max_y = 10.5;
+  const float min_z = -0.1;
+  const float max_z = 2.0;
   const float resolution = 0.1;
   GridAstar grid_astar(min_x, max_x, min_y, max_y, min_z, max_z, resolution);
 
@@ -73,6 +99,9 @@ int main(int argc, char **argv) {
   std::uniform_real_distribution<float> xy(min_x, max_x);
   std::uniform_real_distribution<float> z(1.0, 2.0);
 
+  std::uniform_real_distribution<float> distrib(0.0, 1.0);
+
+  int rolling_x = 0;
   while (ros::ok()) {
     rate.sleep();
     ros::spinOnce();
@@ -84,6 +113,18 @@ int main(int argc, char **argv) {
     TimeTrack track;
     grid_astar.UpdateFromMap(ocmap, bx_min, bx_max);
     track.OutputPassingTime("Update Map");
+
+    track.SetStartTime();
+    grid_astar.MergeMap();
+    track.OutputPassingTime("Merge Map");
+
+    track.SetStartTime();
+    grid_astar.MergeMap2D();
+    track.OutputPassingTime("Merge Map2D");
+
+    track.SetStartTime();
+    grid_astar.MergeMap3D();
+    track.OutputPassingTime("Merge Map3D");
 
     track.SetStartTime();
     const std::vector<std::vector<std::vector<GridAstar::GridState>>>
@@ -112,6 +153,109 @@ int main(int argc, char **argv) {
     }
     node_pub.publish(cube_list);
     track.OutputPassingTime("Visualize Map");
+
+    track.SetStartTime();
+    voxels.markers.clear();
+    rolling_x = (rolling_x + 1) % x_size;
+    const std::vector<std::vector<std::vector<RangeVoxel>>> &merge_map =
+        grid_astar.merge_map();
+    int id = 0;
+    const int num_x = merge_map.size();
+    const int num_y = merge_map[0].size();
+    for (int i = rolling_x; i < rolling_x + 1; ++i) {
+      for (int j = 0; j < num_y; ++j) {
+        const int num_z = merge_map[i][j].size();
+        for (int k = 0; k < num_z; ++k) {
+          const RangeVoxel range_voxel = merge_map[i][j][k];
+          voxel.id = id;
+          voxel.scale.x = resolution * 0.8;
+          voxel.scale.y = resolution * 0.8;
+          voxel.scale.z =
+              resolution * (range_voxel.max_ - range_voxel.min_ + 1);
+          voxel.pose.position.x = min_x + i * resolution + 0.5 * resolution;
+          voxel.pose.position.y = min_y + j * resolution + 0.5 * resolution;
+          voxel.pose.position.z =
+              min_z + 0.5 * (range_voxel.min_ + range_voxel.max_) * resolution +
+              0.5 * resolution;
+          ++id;
+          voxels.markers.emplace_back(voxel);
+        }
+      }
+    }
+    voxel_pub.publish(voxels);
+    track.OutputPassingTime("Visualize Voxel");
+
+    track.SetStartTime();
+    voxels.markers.clear();
+    const std::vector<std::vector<RangeVoxel2D>> &merge_map_2d =
+        grid_astar.merge_map_2d();
+    int voxel2d_id = 0;
+    const int num_x_voxel2d = merge_map_2d.size();
+    for (int i = rolling_x; i < rolling_x + 1; ++i) {
+      const int num_voxel2d = merge_map_2d[i].size();
+      for (int j = 0; j < num_voxel2d; ++j) {
+        const RangeVoxel2D range_voxel_2d = merge_map_2d[i][j];
+        voxel.id = voxel2d_id;
+        voxel.color.a = 1.0;
+        voxel.color.r = distrib(gen);
+        voxel.color.g = distrib(gen);
+        voxel.color.b = distrib(gen);
+        voxel.scale.x = resolution * 0.8;
+        voxel.scale.y =
+            resolution * (range_voxel_2d.y_max_ - range_voxel_2d.y_min_ + 1);
+        voxel.scale.z =
+            resolution * (range_voxel_2d.z_max_ - range_voxel_2d.z_min_ + 1);
+        voxel.pose.position.x = min_x + i * resolution + 0.5 * resolution;
+        voxel.pose.position.y =
+            min_y +
+            0.5 * (range_voxel_2d.y_min_ + range_voxel_2d.y_max_) * resolution +
+            0.5 * resolution;
+        voxel.pose.position.z =
+            min_z +
+            0.5 * (range_voxel_2d.z_min_ + range_voxel_2d.z_max_) * resolution +
+            0.5 * resolution;
+        ++voxel2d_id;
+        voxels.markers.emplace_back(voxel);
+      }
+    }
+    voxel2d_pub.publish(voxels);
+    track.OutputPassingTime("Visualize Voxel2D");
+
+    track.SetStartTime();
+    voxels.markers.clear();
+    const std::vector<RangeVoxel3D> &merge_map_3d = grid_astar.merge_map_3d();
+    int voxel3d_id = 0;
+    const int num_voxel3d = merge_map_3d.size();
+    for (int i = 0; i < num_voxel3d; ++i) {
+      const RangeVoxel3D range_voxel_3d = merge_map_3d[i];
+      voxel.id = voxel3d_id;
+      voxel.color.a = 1.0;
+      voxel.color.r = distrib(gen);
+      voxel.color.g = distrib(gen);
+      voxel.color.b = distrib(gen);
+      voxel.scale.x =
+          resolution * (range_voxel_3d.x_max_ - range_voxel_3d.x_min_ + 1);
+      voxel.scale.y =
+          resolution * (range_voxel_3d.y_max_ - range_voxel_3d.y_min_ + 1);
+      voxel.scale.z =
+          resolution * (range_voxel_3d.z_max_ - range_voxel_3d.z_min_ + 1);
+      voxel.pose.position.x =
+          min_x +
+          0.5 * (range_voxel_3d.x_min_ + range_voxel_3d.x_max_) * resolution +
+          0.5 * resolution;
+      voxel.pose.position.y =
+          min_y +
+          0.5 * (range_voxel_3d.y_min_ + range_voxel_3d.y_max_) * resolution +
+          0.5 * resolution;
+      voxel.pose.position.z =
+          min_z +
+          0.5 * (range_voxel_3d.z_min_ + range_voxel_3d.z_max_) * resolution +
+          0.5 * resolution;
+      ++voxel3d_id;
+      voxels.markers.emplace_back(voxel);
+    }
+    voxel3d_pub.publish(voxels);
+    track.OutputPassingTime("Visualize Voxel3D");
 
     // 设定起点终点
     Eigen::Vector3f start_pt = {xy(gen), xy(gen), z(gen)};

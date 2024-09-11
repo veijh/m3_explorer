@@ -3,10 +3,18 @@
 #include <algorithm>
 #include <queue>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace {
-constexpr float kFreeThreshold = 0.2;
+constexpr float kFreeThreshold = 0.3;
 constexpr float kOccThreshold = 0.7;
+constexpr int kMapZSize = 8;
+constexpr int kMapYZSize = 128;
+constexpr int kMapXYZSize = 512;
+constexpr int kMergeBuffer = 5;
+constexpr int kFilterMinX = 4;
+constexpr int kFilterMinY = 4;
+constexpr int kFilterMinZ = 4;
 } // namespace
 
 const std::vector<Eigen::Vector3i> expand_offset = {
@@ -42,6 +50,19 @@ GridAstar::grid_map() const {
   return grid_map_;
 }
 
+const std::vector<std::vector<std::vector<RangeVoxel>>> &
+GridAstar::merge_map() const {
+  return merge_map_;
+}
+
+const std::vector<std::vector<RangeVoxel2D>> &GridAstar::merge_map_2d() const {
+  return merge_map_2d_;
+}
+
+const std::vector<RangeVoxel3D> &GridAstar::merge_map_3d() const {
+  return merge_map_3d_;
+}
+
 const std::vector<std::shared_ptr<GridAstarNode>> &GridAstar::path() const {
   return path_;
 }
@@ -51,6 +72,10 @@ void GridAstar::UpdateFromMap(const octomap::OcTree *ocmap,
                               const octomap::point3d &bbx_max) {
   if (ocmap == nullptr)
     return;
+
+  const int num_x_grid = grid_map_.size();
+  const int num_y_grid = grid_map_[0].size();
+  const int num_z_grid = grid_map_[0][0].size();
   for (octomap::OcTree::leaf_bbx_iterator
            it = ocmap->begin_leafs_bbx(bbx_min, bbx_max),
            end = ocmap->end_leafs_bbx();
@@ -73,10 +98,6 @@ void GridAstar::UpdateFromMap(const octomap::OcTree *ocmap,
     const float node_max_y = center.y() + size * 0.5;
     const float node_min_z = center.z() - size * 0.5;
     const float node_max_z = center.z() + size * 0.5;
-
-    const int num_x_grid = grid_map_.size();
-    const int num_y_grid = grid_map_[0].size();
-    const int num_z_grid = grid_map_[0][0].size();
 
     int min_x_index =
         static_cast<int>(std::floor((node_min_x - min_x_) / resolution_));
@@ -108,12 +129,264 @@ void GridAstar::UpdateFromMap(const octomap::OcTree *ocmap,
   }
 }
 
+void GridAstar::MergeMap() {
+  const int num_x_grid = grid_map_.size();
+  const int num_y_grid = grid_map_[0].size();
+  const int num_z_grid = grid_map_[0][0].size();
+  merge_map_.resize(num_x_grid,
+                    std::vector<std::vector<RangeVoxel>>(num_y_grid));
+  int total_num = 0;
+  for (int i = 0; i < num_x_grid; ++i) {
+    for (int j = 0; j < num_y_grid; ++j) {
+      int min = 0;
+      int max = num_z_grid - 1;
+      int state = 0;
+      merge_map_[i][j].clear();
+      merge_map_[i][j].reserve(kMapZSize);
+      for (int k = 0; k < num_z_grid; ++k) {
+        switch (state) {
+        case 0:
+          if (grid_map_[i][j][k] == GridState::kFree) {
+            min = k;
+            state = 1;
+          }
+          break;
+        case 1:
+          if (k == num_z_grid - 1 || grid_map_[i][j][k] != GridState::kFree) {
+            max = grid_map_[i][j][k] != GridState::kFree ? k - 1 : k;
+            // Filter narrow range.
+            if (max - min + 1 > kFilterMinZ) {
+              merge_map_[i][j].emplace_back(min, max);
+              ++total_num;
+            }
+            state = 0;
+          }
+          break;
+        }
+      }
+    }
+  }
+  std::cout << "Voxel1D total voxel num: " << total_num << std::endl;
+}
+
+std::vector<RangeVoxel2D> GridAstar::Merge2DVoxelAlongY(
+    const std::vector<std::vector<RangeVoxel>> &yz_voxels) {
+  const int num_y_voxels = yz_voxels.size();
+  std::set<RangeVoxel2DWapper> unmerged_voxels;
+  std::vector<RangeVoxel2D> merge_results;
+  merge_results.reserve(kMapYZSize);
+  for (int i = 0; i < num_y_voxels; ++i) {
+    std::set<RangeVoxel2DWapper> merged_voxels;
+    const int num_z_voxels = yz_voxels[i].size();
+    for (int j = 0; j < num_z_voxels; ++j) {
+      const RangeVoxel new_z_voxel = yz_voxels[i][j];
+      // Find the range to merge in unmerged_voxels.
+      const int voxel_min_lb = new_z_voxel.min_ - kMergeBuffer + 1;
+      const int voxel_max_lb = new_z_voxel.min_ + kMergeBuffer - 1;
+      // Binary search.
+      auto range_lower_it = std::lower_bound(
+          unmerged_voxels.begin(), unmerged_voxels.end(),
+          RangeVoxel2DWapper(RangeVoxel(voxel_min_lb, new_z_voxel.max_)));
+      auto range_upper_it = std::upper_bound(
+          unmerged_voxels.begin(), unmerged_voxels.end(),
+          RangeVoxel2DWapper(RangeVoxel(voxel_max_lb, new_z_voxel.max_)));
+      if (std::distance(range_lower_it, range_upper_it) == 1) {
+        const int voxel_min_ub = new_z_voxel.max_ - kMergeBuffer + 1;
+        const int voxel_max_ub = new_z_voxel.max_ + kMergeBuffer - 1;
+        const int plug_max = range_lower_it->plug_.max_;
+        if (voxel_min_ub <= plug_max && plug_max <= voxel_max_ub) {
+          // Merge and add to the result.
+          RangeVoxel2DWapper new_voxel_wrapper = *range_lower_it;
+          new_voxel_wrapper.plug_ = new_z_voxel;
+          new_voxel_wrapper.range_voxel_2d_.y_max_ = i;
+          new_voxel_wrapper.range_voxel_2d_.z_min_ = std::min(
+              new_voxel_wrapper.range_voxel_2d_.z_min_, new_z_voxel.min_);
+          new_voxel_wrapper.range_voxel_2d_.z_max_ = std::max(
+              new_voxel_wrapper.range_voxel_2d_.z_max_, new_z_voxel.max_);
+          merged_voxels.insert(new_voxel_wrapper);
+          // Erase the range.
+          unmerged_voxels.erase(range_lower_it);
+        } else {
+          const RangeVoxel2D new_voxel(i, i, new_z_voxel.min_,
+                                       new_z_voxel.max_);
+          const RangeVoxel2DWapper new_voxel_wrapper(new_voxel, new_z_voxel);
+          merged_voxels.insert(new_voxel_wrapper);
+        }
+      } else {
+        const RangeVoxel2D new_voxel(i, i, new_z_voxel.min_, new_z_voxel.max_);
+        const RangeVoxel2DWapper new_voxel_wrapper(new_voxel, new_z_voxel);
+        merged_voxels.insert(new_voxel_wrapper);
+      }
+    }
+    // Add all item of unmerged_voxels to result.
+    for (auto &item : unmerged_voxels) {
+      // Filter small voxels.
+      if (item.range_voxel_2d_.y_max_ - item.range_voxel_2d_.y_min_ + 1 <=
+          kFilterMinY) {
+        continue;
+      }
+      merge_results.emplace_back(item.range_voxel_2d_);
+    }
+    unmerged_voxels = merged_voxels;
+  }
+  // Add all item of unmerged_voxels to result.
+  for (auto &item : unmerged_voxels) {
+    // Filter small voxels.
+    if (item.range_voxel_2d_.y_max_ - item.range_voxel_2d_.y_min_ + 1 <=
+            kFilterMinY ||
+        item.range_voxel_2d_.z_max_ - item.range_voxel_2d_.z_min_ + 1 <=
+            kFilterMinZ) {
+      continue;
+    }
+    merge_results.emplace_back(item.range_voxel_2d_);
+  }
+  return merge_results;
+}
+
+void GridAstar::Merge2DVoxelAlongYUnitTest() {
+  std::vector<std::vector<RangeVoxel>> yz_voxels;
+  yz_voxels.resize(7);
+  yz_voxels[0].emplace_back(RangeVoxel(0, 2));
+  yz_voxels[0].emplace_back(RangeVoxel(5, 6));
+  yz_voxels[1].emplace_back(RangeVoxel(0, 1));
+  yz_voxels[1].emplace_back(RangeVoxel(4, 6));
+  yz_voxels[2].emplace_back(RangeVoxel(0, 1));
+  yz_voxels[2].emplace_back(RangeVoxel(3, 6));
+  yz_voxels[4].emplace_back(RangeVoxel(0, 1));
+  yz_voxels[4].emplace_back(RangeVoxel(3, 3));
+  yz_voxels[4].emplace_back(RangeVoxel(5, 6));
+  yz_voxels[5].emplace_back(RangeVoxel(0, 1));
+  yz_voxels[5].emplace_back(RangeVoxel(3, 6));
+  yz_voxels[6].emplace_back(RangeVoxel(0, 6));
+  std::vector<RangeVoxel2D> result = Merge2DVoxelAlongY(yz_voxels);
+  std::cout << "[Result Size]: " << result.size() << std::endl;
+  for (auto item : result) {
+    std::cout << "[Item]: (" << item.y_min_ << ", " << item.y_max_ << "), ("
+              << item.z_min_ << ", " << item.z_max_ << ")" << std::endl;
+  }
+}
+
+void GridAstar::MergeMap2D() {
+  auto cmp = [](const RangeVoxel2D &lhs, const RangeVoxel2D &rhs) {
+    return lhs.y_min_ != rhs.y_min_ ? lhs.y_min_ < rhs.y_min_
+                                    : lhs.z_min_ < rhs.z_min_;
+  };
+  const int num_x_voxel = merge_map_.size();
+  merge_map_2d_.resize(num_x_voxel);
+  int total_num = 0;
+  for (int i = 0; i < num_x_voxel; ++i) {
+    merge_map_2d_[i] = Merge2DVoxelAlongY(merge_map_[i]);
+    std::sort(merge_map_2d_[i].begin(), merge_map_2d_[i].end(), cmp);
+    total_num += merge_map_2d_[i].size();
+  }
+  std::cout << "total_num: " << total_num << std::endl;
+}
+
+std::vector<RangeVoxel3D> GridAstar::Merge3DVoxelAlongX(
+    const std::vector<std::vector<RangeVoxel2D>> &xyz_voxels) {
+  const int num_x_voxels = xyz_voxels.size();
+  std::vector<RangeVoxel3D> merge_results;
+  merge_results.reserve(kMapXYZSize);
+  std::set<RangeVoxel3DWapper> unmerged_voxels;
+  for (int i = 0; i < num_x_voxels; ++i) {
+    std::set<RangeVoxel3DWapper> merged_voxels;
+    const int num_yz_voxels = xyz_voxels[i].size();
+    for (int j = 0; j < num_yz_voxels; ++j) {
+      const RangeVoxel2D new_yz_voxel = xyz_voxels[i][j];
+      // Find the range to merge in unmerged_voxels.
+      const int voxel_y_min_lb = new_yz_voxel.y_min_ - kMergeBuffer + 1;
+      const int voxel_y_min_ub = new_yz_voxel.y_min_ + kMergeBuffer - 1;
+      const int voxel_z_min_lb = new_yz_voxel.z_min_ - kMergeBuffer + 1;
+      const int voxel_z_min_ub = new_yz_voxel.z_min_ + kMergeBuffer - 1;
+      const int voxel_y_max_lb = new_yz_voxel.y_max_ - kMergeBuffer + 1;
+      const int voxel_y_max_ub = new_yz_voxel.y_max_ + kMergeBuffer - 1;
+      const int voxel_z_max_lb = new_yz_voxel.z_max_ - kMergeBuffer + 1;
+      const int voxel_z_max_ub = new_yz_voxel.z_max_ + kMergeBuffer - 1;
+
+      bool is_merged = false;
+      for (auto it = unmerged_voxels.begin(); it != unmerged_voxels.end();) {
+        const int plug_y_min = it->plug_.y_min_;
+        const int plug_z_min = it->plug_.z_min_;
+        const int plug_y_max = it->plug_.y_max_;
+        const int plug_z_max = it->plug_.z_max_;
+        if (voxel_y_min_lb <= plug_y_min && plug_y_min <= voxel_y_min_ub &&
+            voxel_z_min_lb <= plug_z_min && plug_z_min <= voxel_z_min_ub &&
+            voxel_y_max_lb <= plug_y_max && plug_y_max <= voxel_y_max_ub &&
+            voxel_z_max_lb <= plug_z_max && plug_z_max <= voxel_z_max_ub) {
+          // Merge and add to the result.
+          RangeVoxel3DWapper new_voxel_wrapper = *it;
+          new_voxel_wrapper.plug_ = new_yz_voxel;
+          new_voxel_wrapper.range_voxel_3d_.x_max_ = i;
+          new_voxel_wrapper.range_voxel_3d_.y_min_ = std::min(
+              new_voxel_wrapper.range_voxel_3d_.y_min_, new_yz_voxel.y_min_);
+          new_voxel_wrapper.range_voxel_3d_.y_max_ = std::max(
+              new_voxel_wrapper.range_voxel_3d_.y_max_, new_yz_voxel.y_max_);
+          new_voxel_wrapper.range_voxel_3d_.z_min_ = std::min(
+              new_voxel_wrapper.range_voxel_3d_.z_min_, new_yz_voxel.z_min_);
+          new_voxel_wrapper.range_voxel_3d_.z_max_ = std::max(
+              new_voxel_wrapper.range_voxel_3d_.z_max_, new_yz_voxel.z_max_);
+          merged_voxels.insert(new_voxel_wrapper);
+          // Erase the range.
+          unmerged_voxels.erase(it++);
+          is_merged = true;
+          break;
+        } else {
+          it++;
+        }
+      }
+      if (!is_merged) {
+        const RangeVoxel3D new_voxel(i, i, new_yz_voxel.y_min_,
+                                     new_yz_voxel.y_max_, new_yz_voxel.z_min_,
+                                     new_yz_voxel.z_max_);
+        const RangeVoxel3DWapper new_voxel_wrapper(new_voxel, new_yz_voxel);
+        merged_voxels.insert(new_voxel_wrapper);
+      }
+    }
+    // Add all item of unmerged_voxels to result.
+    for (auto &item : unmerged_voxels) {
+      merge_results.emplace_back(item.range_voxel_3d_);
+    }
+    unmerged_voxels = merged_voxels;
+  }
+  // Add all item of unmerged_voxels to result.
+  for (auto &item : unmerged_voxels) {
+    merge_results.emplace_back(item.range_voxel_3d_);
+  }
+  return merge_results;
+}
+
+void GridAstar::Merge3DVoxelAlongXUnitTest() {
+  std::vector<std::vector<RangeVoxel2D>> xyz_voxels;
+  xyz_voxels.resize(7);
+  xyz_voxels[0].emplace_back(RangeVoxel2D(0, 4, 0, 4));
+  xyz_voxels[0].emplace_back(RangeVoxel2D(5, 10, 0, 5));
+  xyz_voxels[1].emplace_back(RangeVoxel2D(0, 4, 0, 4));
+  xyz_voxels[1].emplace_back(RangeVoxel2D(5, 10, 0, 4));
+  xyz_voxels[2].emplace_back(RangeVoxel2D(0, 4, 0, 4));
+  xyz_voxels[2].emplace_back(RangeVoxel2D(5, 10, 0, 3));
+  xyz_voxels[4].emplace_back(RangeVoxel2D(0, 4, 0, 4));
+  xyz_voxels[5].emplace_back(RangeVoxel2D(0, 4, 0, 4));
+  xyz_voxels[6].emplace_back(RangeVoxel2D(0, 4, 0, 4));
+  std::vector<RangeVoxel3D> result = Merge3DVoxelAlongX(xyz_voxels);
+  std::cout << "[Result Size]: " << result.size() << std::endl;
+  for (auto item : result) {
+    std::cout << "[Item]: (" << item.x_min_ << ", " << item.x_max_ << "), ("
+              << item.y_min_ << ", " << item.y_max_ << "), (" << item.z_min_
+              << ", " << item.z_max_ << ")" << std::endl;
+  }
+}
+
+void GridAstar::MergeMap3D() {
+  merge_map_3d_ = Merge3DVoxelAlongX(merge_map_2d_);
+  std::cout << "total_num: " << merge_map_3d_.size() << std::endl;
+}
+
 float GridAstar::AstarPathDistance(const Eigen::Vector3f &start_p,
                                    const Eigen::Vector3f &end_p) {
   TimeTrack tracker;
-  const int num_grid_x = grid_map_.size();
-  const int num_grid_y = grid_map_[0].size();
-  const int num_grid_z = grid_map_[0][0].size();
+  const int num_x_grid = grid_map_.size();
+  const int num_y_grid = grid_map_[0].size();
+  const int num_z_grid = grid_map_[0][0].size();
 
   std::priority_queue<std::shared_ptr<GridAstarNode>,
                       std::vector<std::shared_ptr<GridAstarNode>>,
@@ -187,8 +460,8 @@ float GridAstar::AstarPathDistance(const Eigen::Vector3f &start_p,
       if (next_index_x < 0 || next_index_y < 0 || next_index_z < 0) {
         continue;
       }
-      if (next_index_x >= num_grid_x || next_index_y >= num_grid_y ||
-          next_index_z >= num_grid_z) {
+      if (next_index_x >= num_x_grid || next_index_y >= num_y_grid ||
+          next_index_z >= num_z_grid) {
         continue;
       }
       // only expand free nodes
