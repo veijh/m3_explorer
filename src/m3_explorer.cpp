@@ -4,6 +4,7 @@
 #include "m3_explorer/frontier_detector.h"
 #include "m3_explorer/hastar.h"
 #include "m3_explorer/path_planning.h"
+#include "m3_explorer/time_track.hpp"
 #include <Eigen/Dense>
 #include <cmath>
 #include <geometry_msgs/PointStamped.h>
@@ -42,7 +43,7 @@ using namespace std;
 
 int self_id = 0;
 
-octomap::OcTree* ocmap = nullptr;
+octomap::OcTree *ocmap = nullptr;
 void octomap_cb(const octomap_msgs::Octomap::ConstPtr &msg) {
   delete ocmap;
   ocmap = dynamic_cast<octomap::OcTree *>(msgToMap(*msg));
@@ -195,10 +196,11 @@ int main(int argc, char **argv) {
   cout << "[INFO] uav ID = " << self_id << endl;
 
   // get octomap
-  ros::Subscriber uav0_octomap_sub = nh.subscribe<octomap_msgs::Octomap>("/merged_map", 1, octomap_cb);
+  ros::Subscriber uav0_octomap_sub =
+      nh.subscribe<octomap_msgs::Octomap>("/merged_map", 1, octomap_cb);
   // get current pose
   ros::Subscriber base_link_sub = nh.subscribe<nav_msgs::Odometry>(
-    "ground_truth/base_link", 1, base_link_cb);
+      "ground_truth/base_link", 1, base_link_cb);
 
   // planner input: target pose
   ros::Publisher goal_pub =
@@ -252,7 +254,8 @@ int main(int argc, char **argv) {
 
     // lookup transform of 3 axises
     geometry_msgs::PointStamped cam_o_in_cam;
-    cam_o_in_cam.header.frame_id = "uav" + to_string(self_id) + "_camera_depth_frame";
+    cam_o_in_cam.header.frame_id =
+        "uav" + to_string(self_id) + "_camera_depth_frame";
     cam_o_in_cam.point.x = 0.0;
     cam_o_in_cam.point.y = 0.0;
     cam_o_in_cam.point.z = 0.0;
@@ -271,9 +274,10 @@ int main(int argc, char **argv) {
     vector<geometry_msgs::PointStamped> other_uav_poses;
     geometry_msgs::PointStamped other_uav(cam_o_in_cam);
     geometry_msgs::PointStamped other_uav_in_map;
-    for(int i = 0; i < 3; ++i) {
-      if(i != self_id){
-        other_uav.header.frame_id = "uav" + to_string(i) + "_camera_depth_frame";
+    for (int i = 0; i < 3; ++i) {
+      if (i != self_id) {
+        other_uav.header.frame_id =
+            "uav" + to_string(i) + "_camera_depth_frame";
         try {
           // 使用lookupTransform函数查询坐标变换
           tf_buffer.transform(other_uav, other_uav_in_map, "map");
@@ -287,53 +291,44 @@ int main(int argc, char **argv) {
     //// input = octomap; current pose; FOV; max range; region bbx
     //// output = a set containing all frontier voxels
 
-    ros::Time current_time = ros::Time::now();
-    cout << "Time: " << (current_time - explore_start).toSec() << " s" << endl;
+    TimeTrack tracker;
 
     frontier_detect(frontiers, ocmap, cam_o_in_map, sensor_range);
     frontier_visualize(frontiers, 0.02, frontier_maker_array_pub);
     frontier_normal_visualize(frontiers, frontier_normal_pub);
 
-    ros::Duration elapsed_time = ros::Time::now() - current_time;
-    cout << "[frontier detect]: " << elapsed_time.toSec() * 1000.0
-         << " ms, ";
+    tracker.OutputPassingTime("Frontier Detect");
     cout << "[voxel num]: " << frontiers.size() << endl;
 
     vector<Cluster> cluster_vec;
     geometry_msgs::PoseArray vp_array;
 
     if (!frontiers.empty() && goal_exec == false) {
-      current_time = ros::Time::now();
+      tracker.SetStartTime();
       //// frontier clustering
       //// input = the set containing all frontier voxels
       //// output = a vector containing all frontier clusters
       // cluster_vec = k_mean_cluster(frontiers);
       cluster_vec = dbscan_cluster(frontiers, 0.4, 8, 8, cluster_vis_pub);
       cluster_visualize(cluster_vec, cluster_pub);
+      tracker.OutputPassingTime("Frontier Cluster");
 
-      cout << "[frontier cluster]: "
-           << (ros::Time::now() - current_time).toSec() * 1000.0 << " ms"
-           << endl;
-
-      current_time = ros::Time::now();
+      tracker.SetStartTime();
       //// generate view point
       //// input = a vector containing all frontier clusters
       //// output = a vector containing poses of all view points
       vp_array = view_point_generate(cluster_vec, ocmap);
       view_point_pub.publish(vp_array);
+      tracker.OutputPassingTime("Viewpoint Gen");
 
-      cout << "[viewpoint gen]: "
-           << (ros::Time::now() - current_time).toSec() * 1000.0 << " ms"
-           << endl;
-
-      current_time = ros::Time::now();
+      tracker.SetStartTime();
       //// path planning
       //// input = current pose of uav && a vector containing poses of all view
-      ///points / output = a vector containing the sequence of waypoints
+      /// points / output = a vector containing the sequence of waypoints
       explore_path.poses.clear();
       if (vp_array.poses.size() > 2) {
-        explore_path =
-            amtsp_path(ocmap, cam_o_in_map, other_uav_poses, vp_array, lkh_client, problem_path);
+        explore_path = amtsp_path(ocmap, cam_o_in_map, other_uav_poses,
+                                  vp_array, lkh_client, problem_path);
         // remove start point: cam_o_in_map
         explore_path.poses.erase(explore_path.poses.begin());
       } else if (!vp_array.poses.empty()) {
@@ -341,12 +336,8 @@ int main(int argc, char **argv) {
       } else {
         cout << "no space to explore !!" << endl;
       }
-
-      cout << "[tour planning]: "
-           << (ros::Time::now() - current_time).toSec() * 1000.0 << " ms"
-           << endl;
-
       goal_exec = true;
+      tracker.OutputPassingTime("Tour Planning");
     }
 
     if (goal_exec) {
@@ -382,35 +373,30 @@ int main(int argc, char **argv) {
           switch (state) {
           case PLAN_FSM::PLAN: {
             cout << "Searching Path" << endl;
-            current_time = ros::Time::now();
+            tracker.SetStartTime();
             // Hybrid A* search path
             bool is_planned = planning.search_path(
                 ocmap,
                 Eigen::Vector3f(cam_o_in_map.point.x, cam_o_in_map.point.y,
                                 1.5),
                 Eigen::Vector3f(explore_path.poses[path_id].position.x,
-                                explore_path.poses[path_id].position.y,
-                                1.5),
+                                explore_path.poses[path_id].position.y, 1.5),
                 cur_yaw);
-            cout << "[hastar]: "
-           << (ros::Time::now() - current_time).toSec() * 1000.0 << " ms"
-           << endl;
+            tracker.OutputPassingTime("Hybrid A*");
 
-            current_time = ros::Time::now();
+            tracker.SetStartTime();
             // re-search
-            if(is_planned == false){
+            if (is_planned == false) {
               is_planned = planning.search_path(
-                ocmap,
-                Eigen::Vector3f(cam_o_in_map.point.x - 0.4 * cos(cur_yaw), cam_o_in_map.point.y - 0.4 * sin(cur_yaw),
-                                1.5),
-                Eigen::Vector3f(explore_path.poses[path_id].position.x,
-                                explore_path.poses[path_id].position.y,
-                                1.5),
-                cur_yaw);
+                  ocmap,
+                  Eigen::Vector3f(cam_o_in_map.point.x - 0.4 * cos(cur_yaw),
+                                  cam_o_in_map.point.y - 0.4 * sin(cur_yaw),
+                                  1.5),
+                  Eigen::Vector3f(explore_path.poses[path_id].position.x,
+                                  explore_path.poses[path_id].position.y, 1.5),
+                  cur_yaw);
             }
-            cout << "[hastar replan]: "
-           << (ros::Time::now() - current_time).toSec() * 1000.0 << " ms"
-           << endl;
+            tracker.OutputPassingTime("Hybrid A* Replan");
 
             if (is_planned) {
               // send traj

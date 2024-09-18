@@ -44,6 +44,10 @@ int main(int argc, char **argv) {
   ros::Publisher voxel3d_pub =
       nh.advertise<visualization_msgs::MarkerArray>("/voxel3d", 10);
 
+  // visualize topo point
+  ros::Publisher topo_pub =
+      nh.advertise<visualization_msgs::Marker>("/topo_point", 10);
+
   ros::Rate rate(0.5);
 
   visualization_msgs::Marker cube_list;
@@ -84,6 +88,16 @@ int main(int argc, char **argv) {
   voxel.color.r = 0.5;
   voxel.color.g = 1.0;
   voxel.color.a = 1.0;
+
+  visualization_msgs::Marker topo_list;
+  topo_list.header.frame_id = "map";
+  topo_list.header.stamp = ros::Time::now();
+  topo_list.ns = "topo_list";
+  topo_list.action = visualization_msgs::Marker::ADD;
+  topo_list.pose.orientation.w = 1.0;
+  topo_list.id = 0;
+  topo_list.type = visualization_msgs::Marker::LINE_LIST;
+  topo_list.scale.x = 0.15;
 
   const float min_x = -10.5;
   const float max_x = 10.5;
@@ -256,6 +270,51 @@ int main(int argc, char **argv) {
     }
     voxel3d_pub.publish(voxels);
     track.OutputPassingTime("Visualize Voxel3D");
+
+    track.SetStartTime();
+    topo_list.points.clear();
+    topo_list.colors.clear();
+    const GraphTable &graph_table = grid_astar.graph_table();
+    const int num_node = graph_table.nodes_.size();
+    for (int i = 0; i < num_node; ++i) {
+      if (!graph_table.nodes_[i].edges_.empty()) {
+        const KeyPoint key_point = graph_table.nodes_[i].key_point_;
+        const float r = distrib(gen);
+        const float g = distrib(gen);
+        const float b = distrib(gen);
+        for (int j = 0; j < graph_table.nodes_[i].edges_.size(); ++j) {
+          topo_list.points.emplace_back();
+          topo_list.points.back().x =
+              min_x + resolution * key_point.x_ + 0.5 * resolution;
+          topo_list.points.back().y =
+              min_y + resolution * key_point.y_ + 0.5 * resolution;
+          topo_list.points.back().z =
+              min_z + resolution * key_point.z_ + 0.5 * resolution;
+          topo_list.colors.emplace_back();
+          topo_list.colors.back().a = 1.0;
+          topo_list.colors.back().r = r;
+          topo_list.colors.back().g = g;
+          topo_list.colors.back().b = b;
+          const int neighbor_id = graph_table.nodes_[i].edges_[j].dest_id_;
+          const KeyPoint key_point_neighbor =
+              graph_table.nodes_[neighbor_id].key_point_;
+          topo_list.points.emplace_back();
+          topo_list.points.back().x =
+              min_x + key_point_neighbor.x_ * resolution + 0.5 * resolution;
+          topo_list.points.back().y =
+              min_y + key_point_neighbor.y_ * resolution + 0.5 * resolution;
+          topo_list.points.back().z =
+              min_z + key_point_neighbor.z_ * resolution + 0.5 * resolution;
+          topo_list.colors.emplace_back();
+          topo_list.colors.back().a = 1.0;
+          topo_list.colors.back().r = r;
+          topo_list.colors.back().g = g;
+          topo_list.colors.back().b = b;
+        }
+      }
+    }
+    topo_pub.publish(topo_list);
+    track.OutputPassingTime("Visualize Topo Point");
 
     // 设定起点终点
     Eigen::Vector3f start_pt = {xy(gen), xy(gen), z(gen)};

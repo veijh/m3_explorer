@@ -33,7 +33,7 @@ public:
 
 public:
   GridKey(const int index_x, const int index_y, const int index_z)
-      : index_x_(index_x), index_y_(index_y), index_z_(index_z) {}
+      : index_x_(index_x), index_y_(index_y), index_z_(index_z){};
   bool operator==(const GridKey &key) const {
     return index_x_ == key.index_x_ && index_y_ == key.index_y_ &&
            index_z_ == key.index_z_;
@@ -70,7 +70,7 @@ public:
   int max_ = 0;
   RangeVoxel() = default;
   RangeVoxel(const RangeVoxel &rhs) = default;
-  RangeVoxel(const int min, const int max) : min_(min), max_(max) {}
+  RangeVoxel(const int min, const int max) : min_(min), max_(max){};
 };
 
 class RangeVoxel2D {
@@ -83,7 +83,7 @@ public:
   RangeVoxel2D(const RangeVoxel2D &rhs) = default;
   RangeVoxel2D(const int y_min, const int y_max, const int z_min,
                const int z_max)
-      : y_min_(y_min), y_max_(y_max), z_min_(z_min), z_max_(z_max) {}
+      : y_min_(y_min), y_max_(y_max), z_min_(z_min), z_max_(z_max){};
 };
 
 class RangeVoxel2DWapper {
@@ -92,9 +92,9 @@ public:
   RangeVoxel plug_;
   RangeVoxel2DWapper() = default;
   RangeVoxel2DWapper(const RangeVoxel2DWapper &rhs) = default;
-  RangeVoxel2DWapper(const RangeVoxel &plug) : plug_(plug) {}
+  RangeVoxel2DWapper(const RangeVoxel &plug) : plug_(plug){};
   RangeVoxel2DWapper(const RangeVoxel2D &range_voxel_2d, const RangeVoxel &plug)
-      : range_voxel_2d_(range_voxel_2d), plug_(plug) {}
+      : range_voxel_2d_(range_voxel_2d), plug_(plug){};
   bool operator<(const RangeVoxel2DWapper &rhs) const {
     return plug_.min_ < rhs.plug_.min_;
   }
@@ -113,23 +113,63 @@ public:
   RangeVoxel3D(const int x_min, const int x_max, const int y_min,
                const int y_max, const int z_min, const int z_max)
       : x_min_(x_min), x_max_(x_max), y_min_(y_min), y_max_(y_max),
-        z_min_(z_min), z_max_(z_max) {}
+        z_min_(z_min), z_max_(z_max){};
 };
 
 class RangeVoxel3DWapper {
 public:
   RangeVoxel3D range_voxel_3d_;
   RangeVoxel2D plug_;
+  int block_id_ = 0;
   RangeVoxel3DWapper() = default;
   RangeVoxel3DWapper(const RangeVoxel3DWapper &rhs) = default;
-  RangeVoxel3DWapper(const RangeVoxel2D &plug) : plug_(plug) {}
+  RangeVoxel3DWapper(const RangeVoxel2D &plug) : plug_(plug){};
   RangeVoxel3DWapper(const RangeVoxel3D &range_voxel_2d,
-                     const RangeVoxel2D &plug)
-      : range_voxel_3d_(range_voxel_2d), plug_(plug) {}
+                     const RangeVoxel2D &plug, const int block_id)
+      : range_voxel_3d_(range_voxel_2d), plug_(plug), block_id_(block_id){};
   bool operator<(const RangeVoxel3DWapper &rhs) const {
     return plug_.y_min_ != rhs.plug_.y_min_ ? plug_.y_min_ < rhs.plug_.y_min_
                                             : plug_.z_min_ < rhs.plug_.z_min_;
   }
+};
+
+class KeyPoint {
+public:
+  int x_ = 0;
+  int y_ = 0;
+  int z_ = 0;
+  int block_id_ = 0;
+  KeyPoint() = default;
+  KeyPoint(const KeyPoint &rhs) = default;
+  KeyPoint(const int x, const int y, const int z, const int block_id)
+      : x_(x), y_(y), z_(z), block_id_(block_id){};
+};
+
+class GraphEdge {
+public:
+  int dest_id_ = 0;
+  float weight_ = 0.0;
+  GraphEdge() = default;
+  GraphEdge(const int dest_id, const float weight)
+      : dest_id_(dest_id), weight_(weight){};
+};
+
+class GraphNode {
+public:
+  KeyPoint key_point_;
+  std::vector<GraphEdge> edges_;
+  GraphNode() = default;
+  GraphNode(const KeyPoint &key_point) : key_point_(key_point){};
+};
+
+class GraphTable {
+public:
+  std::vector<GraphNode> nodes_;
+  void AddNewEdge(const KeyPoint &src_key_point, const KeyPoint &dest_key_point,
+                  const float weight = 1.0);
+  void AddEdgeBetweenExistingNode(const int src_id, const int dest_id,
+                                  const float weight);
+  void UpdateEdgesInSameBlock();
 };
 
 class GridAstar {
@@ -154,6 +194,7 @@ private:
   Merge2DVoxelAlongY(const std::vector<std::vector<RangeVoxel>> &yz_voxels);
   std::vector<RangeVoxel3D>
   Merge3DVoxelAlongX(const std::vector<std::vector<RangeVoxel2D>> &xyz_voxels);
+  GraphTable graph_table_;
 
 public:
   const std::vector<std::vector<std::vector<GridState>>> &grid_map() const;
@@ -161,6 +202,7 @@ public:
   const std::vector<std::vector<RangeVoxel2D>> &merge_map_2d() const;
   const std::vector<RangeVoxel3D> &merge_map_3d() const;
   const std::vector<std::shared_ptr<GridAstarNode>> &path() const;
+  const GraphTable &graph_table() const;
 
   GridAstar(const float min_x, const float max_x, const float min_y,
             const float max_y, const float min_z, const float max_z,

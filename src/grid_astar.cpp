@@ -15,10 +15,59 @@ constexpr int kMergeBuffer = 5;
 constexpr int kFilterMinX = 4;
 constexpr int kFilterMinY = 4;
 constexpr int kFilterMinZ = 4;
+constexpr int kConnectivityMinY = 4;
+constexpr int kConnectivityMinZ = 4;
 } // namespace
 
 const std::vector<Eigen::Vector3i> expand_offset = {
     {-1, 0, 0}, {1, 0, 0}, {0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}};
+
+void GraphTable::AddNewEdge(const KeyPoint &src_key_point,
+                            const KeyPoint &dest_key_point,
+                            const float weight) {
+  int id = nodes_.size();
+  nodes_.emplace_back(src_key_point);
+  nodes_.emplace_back(dest_key_point);
+  // Add one direction edge.
+  nodes_[id].edges_.emplace_back(id + 1, weight);
+}
+
+void GraphTable::AddEdgeBetweenExistingNode(const int src_id, const int dest_id,
+                                            const float weight) {
+  nodes_[src_id].edges_.emplace_back(dest_id, weight);
+}
+
+void GraphTable::UpdateEdgesInSameBlock() {
+  std::unordered_map<int, std::shared_ptr<std::vector<int>>> block_group;
+  const int num_nodes = nodes_.size();
+  for (int i = 0; i < num_nodes; ++i) {
+    if (block_group.find(nodes_[i].key_point_.block_id_) == block_group.end()) {
+      block_group[nodes_[i].key_point_.block_id_] =
+          std::make_shared<std::vector<int>>();
+      block_group[nodes_[i].key_point_.block_id_]->emplace_back(i);
+    } else {
+      block_group[nodes_[i].key_point_.block_id_]->emplace_back(i);
+    }
+  }
+  for (auto it = block_group.begin(); it != block_group.end(); ++it) {
+    const int group_size = it->second->size();
+    for (int i = 0; i < group_size; ++i) {
+      for (int j = 0; j < group_size; ++j) {
+        if (i != j) {
+          const float delta_x = nodes_[it->second->at(i)].key_point_.x_ -
+                                nodes_[it->second->at(j)].key_point_.x_;
+          const float delta_y = nodes_[it->second->at(i)].key_point_.y_ -
+                                nodes_[it->second->at(j)].key_point_.y_;
+          const float delta_z = nodes_[it->second->at(i)].key_point_.z_ -
+                                nodes_[it->second->at(j)].key_point_.z_;
+          const float weight = std::hypot(delta_x, delta_y, delta_z);
+          AddEdgeBetweenExistingNode(it->second->at(i), it->second->at(j),
+                                     weight);
+        }
+      }
+    }
+  }
+}
 
 GridAstarNode::GridAstarNode(const int index_x, const int index_y,
                              const int index_z)
@@ -66,6 +115,8 @@ const std::vector<RangeVoxel3D> &GridAstar::merge_map_3d() const {
 const std::vector<std::shared_ptr<GridAstarNode>> &GridAstar::path() const {
   return path_;
 }
+
+const GraphTable &GridAstar::graph_table() const { return graph_table_; }
 
 void GridAstar::UpdateFromMap(const octomap::OcTree *ocmap,
                               const octomap::point3d &bbx_min,
@@ -285,6 +336,8 @@ void GridAstar::MergeMap2D() {
 std::vector<RangeVoxel3D> GridAstar::Merge3DVoxelAlongX(
     const std::vector<std::vector<RangeVoxel2D>> &xyz_voxels) {
   const int num_x_voxels = xyz_voxels.size();
+  int block_id = 0;
+  GraphTable graph_table;
   std::vector<RangeVoxel3D> merge_results;
   merge_results.reserve(kMapXYZSize);
   std::set<RangeVoxel3DWapper> unmerged_voxels;
@@ -304,11 +357,18 @@ std::vector<RangeVoxel3D> GridAstar::Merge3DVoxelAlongX(
       const int voxel_z_max_ub = new_yz_voxel.z_max_ + kMergeBuffer - 1;
 
       bool is_merged = false;
+      bool is_connected = false;
       for (auto it = unmerged_voxels.begin(); it != unmerged_voxels.end();) {
         const int plug_y_min = it->plug_.y_min_;
         const int plug_z_min = it->plug_.z_min_;
         const int plug_y_max = it->plug_.y_max_;
         const int plug_z_max = it->plug_.z_max_;
+
+        const int overlap_y_min = std::max(plug_y_min, new_yz_voxel.y_min_);
+        const int overlap_y_max = std::min(plug_y_max, new_yz_voxel.y_max_);
+        const int overlap_z_min = std::max(plug_z_min, new_yz_voxel.z_min_);
+        const int overlap_z_max = std::min(plug_z_max, new_yz_voxel.z_max_);
+
         if (voxel_y_min_lb <= plug_y_min && plug_y_min <= voxel_y_min_ub &&
             voxel_z_min_lb <= plug_z_min && plug_z_min <= voxel_z_min_ub &&
             voxel_y_max_lb <= plug_y_max && plug_y_max <= voxel_y_max_ub &&
@@ -330,6 +390,19 @@ std::vector<RangeVoxel3D> GridAstar::Merge3DVoxelAlongX(
           unmerged_voxels.erase(it++);
           is_merged = true;
           break;
+        } else if (overlap_y_max - overlap_y_min + 1 >= kConnectivityMinY &&
+                   overlap_z_max - overlap_z_min + 1 >= kConnectivityMinZ) {
+          // If two voxels are partially overlapped, add a new edge to the
+          // graph.
+          const int key_point_y = (overlap_y_min + overlap_y_max) / 2;
+          const int key_point_z = (overlap_z_min + overlap_z_max) / 2;
+          const int key_point_x = i;
+          const KeyPoint last_key_point(key_point_x - 1, key_point_y,
+                                        key_point_z, it->block_id_);
+          const KeyPoint key_point(key_point_x, key_point_y, key_point_z,
+                                   block_id);
+          graph_table.AddNewEdge(last_key_point, key_point);
+          it++;
         } else {
           it++;
         }
@@ -338,7 +411,10 @@ std::vector<RangeVoxel3D> GridAstar::Merge3DVoxelAlongX(
         const RangeVoxel3D new_voxel(i, i, new_yz_voxel.y_min_,
                                      new_yz_voxel.y_max_, new_yz_voxel.z_min_,
                                      new_yz_voxel.z_max_);
-        const RangeVoxel3DWapper new_voxel_wrapper(new_voxel, new_yz_voxel);
+        const RangeVoxel3DWapper new_voxel_wrapper(new_voxel, new_yz_voxel,
+                                                   block_id);
+        // Update block id of next voxel.
+        ++block_id;
         merged_voxels.insert(new_voxel_wrapper);
       }
     }
@@ -352,6 +428,9 @@ std::vector<RangeVoxel3D> GridAstar::Merge3DVoxelAlongX(
   for (auto &item : unmerged_voxels) {
     merge_results.emplace_back(item.range_voxel_3d_);
   }
+  // Update topology of the graph.
+  graph_table.UpdateEdgesInSameBlock();
+  graph_table_ = graph_table;
   return merge_results;
 }
 
