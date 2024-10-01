@@ -147,6 +147,7 @@ add_library(${PROJECT_NAME}_lib
   src/astar.cpp
   src/octo_astar.cpp
   src/grid_astar.cpp
+  src/block.cpp
 )
 
 ## Add cmake target dependencies of the library
