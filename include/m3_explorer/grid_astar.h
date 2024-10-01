@@ -1,5 +1,6 @@
 #ifndef GRID_ASTAR_H
 #define GRID_ASTAR_H
+#include "m3_explorer/block.h"
 #include <Eigen/Dense>
 #include <octomap/octomap.h>
 #include <ros/ros.h>
@@ -22,6 +23,13 @@ struct GridAstarNodeCmp {
   bool operator()(const std::shared_ptr<GridAstarNode> &lhs,
                   const std::shared_ptr<GridAstarNode> &rhs) const {
     return lhs->f_score_ > rhs->f_score_;
+  }
+};
+
+struct DijkstraNodeCmp {
+  bool operator()(const std::pair<int, float> &lhs,
+                  const std::pair<int, float> &rhs) const {
+    return lhs.second > rhs.second;
   }
 };
 
@@ -64,85 +72,17 @@ public:
   float h_score_ = 0.0;
 };
 
-class RangeVoxel {
-public:
-  int min_ = 0;
-  int max_ = 0;
-  RangeVoxel() = default;
-  RangeVoxel(const RangeVoxel &rhs) = default;
-  RangeVoxel(const int min, const int max) : min_(min), max_(max){};
-};
-
-class RangeVoxel2D {
-public:
-  int y_min_ = 0;
-  int y_max_ = 0;
-  int z_min_ = 0;
-  int z_max_ = 0;
-  RangeVoxel2D() = default;
-  RangeVoxel2D(const RangeVoxel2D &rhs) = default;
-  RangeVoxel2D(const int y_min, const int y_max, const int z_min,
-               const int z_max)
-      : y_min_(y_min), y_max_(y_max), z_min_(z_min), z_max_(z_max){};
-};
-
-class RangeVoxel2DWapper {
-public:
-  RangeVoxel2D range_voxel_2d_;
-  RangeVoxel plug_;
-  RangeVoxel2DWapper() = default;
-  RangeVoxel2DWapper(const RangeVoxel2DWapper &rhs) = default;
-  RangeVoxel2DWapper(const RangeVoxel &plug) : plug_(plug){};
-  RangeVoxel2DWapper(const RangeVoxel2D &range_voxel_2d, const RangeVoxel &plug)
-      : range_voxel_2d_(range_voxel_2d), plug_(plug){};
-  bool operator<(const RangeVoxel2DWapper &rhs) const {
-    return plug_.min_ < rhs.plug_.min_;
-  }
-};
-
-class RangeVoxel3D {
-public:
-  int x_min_ = 0;
-  int x_max_ = 0;
-  int y_min_ = 0;
-  int y_max_ = 0;
-  int z_min_ = 0;
-  int z_max_ = 0;
-  RangeVoxel3D() = default;
-  RangeVoxel3D(const RangeVoxel3D &rhs) = default;
-  RangeVoxel3D(const int x_min, const int x_max, const int y_min,
-               const int y_max, const int z_min, const int z_max)
-      : x_min_(x_min), x_max_(x_max), y_min_(y_min), y_max_(y_max),
-        z_min_(z_min), z_max_(z_max){};
-};
-
-class RangeVoxel3DWapper {
-public:
-  RangeVoxel3D range_voxel_3d_;
-  RangeVoxel2D plug_;
-  int block_id_ = 0;
-  RangeVoxel3DWapper() = default;
-  RangeVoxel3DWapper(const RangeVoxel3DWapper &rhs) = default;
-  RangeVoxel3DWapper(const RangeVoxel2D &plug) : plug_(plug){};
-  RangeVoxel3DWapper(const RangeVoxel3D &range_voxel_2d,
-                     const RangeVoxel2D &plug, const int block_id)
-      : range_voxel_3d_(range_voxel_2d), plug_(plug), block_id_(block_id){};
-  bool operator<(const RangeVoxel3DWapper &rhs) const {
-    return plug_.y_min_ != rhs.plug_.y_min_ ? plug_.y_min_ < rhs.plug_.y_min_
-                                            : plug_.z_min_ < rhs.plug_.z_min_;
-  }
-};
-
-class KeyPoint {
+class KeyBlock {
 public:
   int x_ = 0;
-  int y_ = 0;
-  int z_ = 0;
   int block_id_ = 0;
-  KeyPoint() = default;
-  KeyPoint(const KeyPoint &rhs) = default;
-  KeyPoint(const int x, const int y, const int z, const int block_id)
-      : x_(x), y_(y), z_(z), block_id_(block_id){};
+  Block2D block_;
+
+public:
+  KeyBlock() = default;
+  KeyBlock(const KeyBlock &rhs) = default;
+  KeyBlock(const int x, const int block_id, const Block2D &block)
+      : x_(x), block_id_(block_id), block_(block){};
 };
 
 class GraphEdge {
@@ -156,16 +96,16 @@ public:
 
 class GraphNode {
 public:
-  KeyPoint key_point_;
+  KeyBlock key_block_;
   std::vector<GraphEdge> edges_;
   GraphNode() = default;
-  GraphNode(const KeyPoint &key_point) : key_point_(key_point){};
+  GraphNode(const KeyBlock &key_block) : key_block_(key_block){};
 };
 
 class GraphTable {
 public:
   std::vector<GraphNode> nodes_;
-  void AddNewEdge(const KeyPoint &src_key_point, const KeyPoint &dest_key_point,
+  void AddNewEdge(const KeyBlock &src_key_block, const KeyBlock &dest_key_block,
                   const float weight = 1.0);
   void AddEdgeBetweenExistingNode(const int src_id, const int dest_id,
                                   const float weight);
@@ -186,22 +126,24 @@ private:
   float resolution_ = 0.1;
   std::vector<std::vector<std::vector<GridState>>> grid_map_;
   std::vector<std::vector<std::vector<RangeVoxel>>> merge_map_;
-  std::vector<std::vector<RangeVoxel2D>> merge_map_2d_;
-  std::vector<RangeVoxel3D> merge_map_3d_;
+  std::vector<std::vector<Block2D>> merge_map_2d_;
+  std::vector<Block3D> merge_map_3d_;
   std::vector<std::shared_ptr<GridAstarNode>> path_;
+  std::vector<int> block_path_;
   // Return the set of merged_voxels.
-  std::vector<RangeVoxel2D>
+  std::vector<Block2D>
   Merge2DVoxelAlongY(const std::vector<std::vector<RangeVoxel>> &yz_voxels);
-  std::vector<RangeVoxel3D>
-  Merge3DVoxelAlongX(const std::vector<std::vector<RangeVoxel2D>> &xyz_voxels);
+  std::vector<Block3D>
+  Merge3DVoxelAlongX(const std::vector<std::vector<Block2D>> &xyz_voxels);
   GraphTable graph_table_;
 
 public:
   const std::vector<std::vector<std::vector<GridState>>> &grid_map() const;
   const std::vector<std::vector<std::vector<RangeVoxel>>> &merge_map() const;
-  const std::vector<std::vector<RangeVoxel2D>> &merge_map_2d() const;
-  const std::vector<RangeVoxel3D> &merge_map_3d() const;
+  const std::vector<std::vector<Block2D>> &merge_map_2d() const;
+  const std::vector<Block3D> &merge_map_3d() const;
   const std::vector<std::shared_ptr<GridAstarNode>> &path() const;
+  const std::vector<int> &block_path() const;
   const GraphTable &graph_table() const;
 
   GridAstar(const float min_x, const float max_x, const float min_y,
@@ -216,6 +158,8 @@ public:
   void Merge3DVoxelAlongXUnitTest();
   void MergeMap3D();
   float AstarPathDistance(const Eigen::Vector3f &start_p,
+                          const Eigen::Vector3f &end_p);
+  float BlockPathDistance(const Eigen::Vector3f &start_p,
                           const Eigen::Vector3f &end_p);
   inline float CalHeurScore(const std::shared_ptr<GridAstarNode> &node,
                             const Eigen::Vector3f &end_p);

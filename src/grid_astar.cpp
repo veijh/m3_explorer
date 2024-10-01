@@ -22,14 +22,16 @@ constexpr int kConnectivityMinZ = 4;
 const std::vector<Eigen::Vector3i> expand_offset = {
     {-1, 0, 0}, {1, 0, 0}, {0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}};
 
-void GraphTable::AddNewEdge(const KeyPoint &src_key_point,
-                            const KeyPoint &dest_key_point,
+void GraphTable::AddNewEdge(const KeyBlock &src_key_block,
+                            const KeyBlock &dest_key_block,
                             const float weight) {
-  int id = nodes_.size();
-  nodes_.emplace_back(src_key_point);
-  nodes_.emplace_back(dest_key_point);
-  // Add one direction edge.
-  nodes_[id].edges_.emplace_back(id + 1, weight);
+  int src_id = nodes_.size();
+  int dest_id = nodes_.size() + 1;
+  nodes_.emplace_back(src_key_block);
+  nodes_.emplace_back(dest_key_block);
+  // Add edge between src and dest.
+  nodes_[src_id].edges_.emplace_back(dest_id, weight);
+  nodes_[dest_id].edges_.emplace_back(src_id, weight);
 }
 
 void GraphTable::AddEdgeBetweenExistingNode(const int src_id, const int dest_id,
@@ -40,29 +42,30 @@ void GraphTable::AddEdgeBetweenExistingNode(const int src_id, const int dest_id,
 void GraphTable::UpdateEdgesInSameBlock() {
   std::unordered_map<int, std::shared_ptr<std::vector<int>>> block_group;
   const int num_nodes = nodes_.size();
+  // Group nodes by block_id.
   for (int i = 0; i < num_nodes; ++i) {
-    if (block_group.find(nodes_[i].key_point_.block_id_) == block_group.end()) {
-      block_group[nodes_[i].key_point_.block_id_] =
+    if (block_group.find(nodes_[i].key_block_.block_id_) == block_group.end()) {
+      block_group[nodes_[i].key_block_.block_id_] =
           std::make_shared<std::vector<int>>();
-      block_group[nodes_[i].key_point_.block_id_]->emplace_back(i);
+      block_group[nodes_[i].key_block_.block_id_]->emplace_back(i);
     } else {
-      block_group[nodes_[i].key_point_.block_id_]->emplace_back(i);
+      block_group[nodes_[i].key_block_.block_id_]->emplace_back(i);
     }
   }
+  // Update edges between nodes in the same block.
   for (auto it = block_group.begin(); it != block_group.end(); ++it) {
     const int group_size = it->second->size();
     for (int i = 0; i < group_size; ++i) {
       for (int j = 0; j < group_size; ++j) {
         if (i != j) {
-          const float delta_x = nodes_[it->second->at(i)].key_point_.x_ -
-                                nodes_[it->second->at(j)].key_point_.x_;
-          const float delta_y = nodes_[it->second->at(i)].key_point_.y_ -
-                                nodes_[it->second->at(j)].key_point_.y_;
-          const float delta_z = nodes_[it->second->at(i)].key_point_.z_ -
-                                nodes_[it->second->at(j)].key_point_.z_;
-          const float weight = std::hypot(delta_x, delta_y, delta_z);
-          AddEdgeBetweenExistingNode(it->second->at(i), it->second->at(j),
-                                     weight);
+          const int src_index = it->second->at(i);
+          const int dest_index = it->second->at(j);
+          const KeyBlock &src_key_block = nodes_[src_index].key_block_;
+          const KeyBlock &dest_key_block = nodes_[dest_index].key_block_;
+          const float delta_x = src_key_block.x_ - dest_key_block.x_;
+          const float weight = src_key_block.block_.GetRoughDistance(
+              dest_key_block.block_, delta_x);
+          AddEdgeBetweenExistingNode(src_index, dest_index, weight);
         }
       }
     }
@@ -104,17 +107,19 @@ GridAstar::merge_map() const {
   return merge_map_;
 }
 
-const std::vector<std::vector<RangeVoxel2D>> &GridAstar::merge_map_2d() const {
+const std::vector<std::vector<Block2D>> &GridAstar::merge_map_2d() const {
   return merge_map_2d_;
 }
 
-const std::vector<RangeVoxel3D> &GridAstar::merge_map_3d() const {
+const std::vector<Block3D> &GridAstar::merge_map_3d() const {
   return merge_map_3d_;
 }
 
 const std::vector<std::shared_ptr<GridAstarNode>> &GridAstar::path() const {
   return path_;
 }
+
+const std::vector<int> &GridAstar::block_path() const { return block_path_; }
 
 const GraphTable &GridAstar::graph_table() const { return graph_table_; }
 
@@ -220,14 +225,14 @@ void GridAstar::MergeMap() {
   std::cout << "Voxel1D total voxel num: " << total_num << std::endl;
 }
 
-std::vector<RangeVoxel2D> GridAstar::Merge2DVoxelAlongY(
+std::vector<Block2D> GridAstar::Merge2DVoxelAlongY(
     const std::vector<std::vector<RangeVoxel>> &yz_voxels) {
   const int num_y_voxels = yz_voxels.size();
-  std::set<RangeVoxel2DWapper> unmerged_voxels;
-  std::vector<RangeVoxel2D> merge_results;
+  std::set<Block2DWrapper> unmerged_voxels;
+  std::vector<Block2D> merge_results;
   merge_results.reserve(kMapYZSize);
   for (int i = 0; i < num_y_voxels; ++i) {
-    std::set<RangeVoxel2DWapper> merged_voxels;
+    std::set<Block2DWrapper> merged_voxels;
     const int num_z_voxels = yz_voxels[i].size();
     for (int j = 0; j < num_z_voxels; ++j) {
       const RangeVoxel new_z_voxel = yz_voxels[i][j];
@@ -237,59 +242,50 @@ std::vector<RangeVoxel2D> GridAstar::Merge2DVoxelAlongY(
       // Binary search.
       auto range_lower_it = std::lower_bound(
           unmerged_voxels.begin(), unmerged_voxels.end(),
-          RangeVoxel2DWapper(RangeVoxel(voxel_min_lb, new_z_voxel.max_)));
+          Block2DWrapper(RangeVoxel(voxel_min_lb, new_z_voxel.max_)));
       auto range_upper_it = std::upper_bound(
           unmerged_voxels.begin(), unmerged_voxels.end(),
-          RangeVoxel2DWapper(RangeVoxel(voxel_max_lb, new_z_voxel.max_)));
-      if (std::distance(range_lower_it, range_upper_it) == 1) {
+          Block2DWrapper(RangeVoxel(voxel_max_lb, new_z_voxel.max_)));
+      if (std::distance(range_lower_it, range_upper_it) >= 1) {
         const int voxel_min_ub = new_z_voxel.max_ - kMergeBuffer + 1;
         const int voxel_max_ub = new_z_voxel.max_ + kMergeBuffer - 1;
         const int plug_max = range_lower_it->plug_.max_;
         if (voxel_min_ub <= plug_max && plug_max <= voxel_max_ub) {
           // Merge and add to the result.
-          RangeVoxel2DWapper new_voxel_wrapper = *range_lower_it;
+          Block2DWrapper new_voxel_wrapper = *range_lower_it;
           new_voxel_wrapper.plug_ = new_z_voxel;
-          new_voxel_wrapper.range_voxel_2d_.y_max_ = i;
-          new_voxel_wrapper.range_voxel_2d_.z_min_ = std::min(
-              new_voxel_wrapper.range_voxel_2d_.z_min_, new_z_voxel.min_);
-          new_voxel_wrapper.range_voxel_2d_.z_max_ = std::max(
-              new_voxel_wrapper.range_voxel_2d_.z_max_, new_z_voxel.max_);
+          new_voxel_wrapper.block_2d_.EmplaceRangeBack(new_z_voxel);
           merged_voxels.insert(new_voxel_wrapper);
           // Erase the range.
           unmerged_voxels.erase(range_lower_it);
         } else {
-          const RangeVoxel2D new_voxel(i, i, new_z_voxel.min_,
-                                       new_z_voxel.max_);
-          const RangeVoxel2DWapper new_voxel_wrapper(new_voxel, new_z_voxel);
+          const Block2D new_voxel(i, new_z_voxel);
+          const Block2DWrapper new_voxel_wrapper(new_voxel, new_z_voxel);
           merged_voxels.insert(new_voxel_wrapper);
         }
       } else {
-        const RangeVoxel2D new_voxel(i, i, new_z_voxel.min_, new_z_voxel.max_);
-        const RangeVoxel2DWapper new_voxel_wrapper(new_voxel, new_z_voxel);
+        const Block2D new_voxel(i, new_z_voxel);
+        const Block2DWrapper new_voxel_wrapper(new_voxel, new_z_voxel);
         merged_voxels.insert(new_voxel_wrapper);
       }
     }
     // Add all item of unmerged_voxels to result.
     for (auto &item : unmerged_voxels) {
       // Filter small voxels.
-      if (item.range_voxel_2d_.y_max_ - item.range_voxel_2d_.y_min_ + 1 <=
-          kFilterMinY) {
+      if (item.block_2d_.y_max_ - item.block_2d_.y_min_ + 1 <= kFilterMinY) {
         continue;
       }
-      merge_results.emplace_back(item.range_voxel_2d_);
+      merge_results.emplace_back(item.block_2d_);
     }
     unmerged_voxels = merged_voxels;
   }
   // Add all item of unmerged_voxels to result.
   for (auto &item : unmerged_voxels) {
     // Filter small voxels.
-    if (item.range_voxel_2d_.y_max_ - item.range_voxel_2d_.y_min_ + 1 <=
-            kFilterMinY ||
-        item.range_voxel_2d_.z_max_ - item.range_voxel_2d_.z_min_ + 1 <=
-            kFilterMinZ) {
+    if (item.block_2d_.y_max_ - item.block_2d_.y_min_ + 1 <= kFilterMinY) {
       continue;
     }
-    merge_results.emplace_back(item.range_voxel_2d_);
+    merge_results.emplace_back(item.block_2d_);
   }
   return merge_results;
 }
@@ -309,7 +305,7 @@ void GridAstar::Merge2DVoxelAlongYUnitTest() {
   yz_voxels[5].emplace_back(RangeVoxel(0, 1));
   yz_voxels[5].emplace_back(RangeVoxel(3, 6));
   yz_voxels[6].emplace_back(RangeVoxel(0, 6));
-  std::vector<RangeVoxel2D> result = Merge2DVoxelAlongY(yz_voxels);
+  std::vector<Block2D> result = Merge2DVoxelAlongY(yz_voxels);
   std::cout << "[Result Size]: " << result.size() << std::endl;
   for (auto item : result) {
     std::cout << "[Item]: (" << item.y_min_ << ", " << item.y_max_ << "), ("
@@ -318,7 +314,7 @@ void GridAstar::Merge2DVoxelAlongYUnitTest() {
 }
 
 void GridAstar::MergeMap2D() {
-  auto cmp = [](const RangeVoxel2D &lhs, const RangeVoxel2D &rhs) {
+  auto cmp = [](const Block2D &lhs, const Block2D &rhs) {
     return lhs.y_min_ != rhs.y_min_ ? lhs.y_min_ < rhs.y_min_
                                     : lhs.z_min_ < rhs.z_min_;
   };
@@ -333,19 +329,19 @@ void GridAstar::MergeMap2D() {
   std::cout << "total_num: " << total_num << std::endl;
 }
 
-std::vector<RangeVoxel3D> GridAstar::Merge3DVoxelAlongX(
-    const std::vector<std::vector<RangeVoxel2D>> &xyz_voxels) {
+std::vector<Block3D> GridAstar::Merge3DVoxelAlongX(
+    const std::vector<std::vector<Block2D>> &xyz_voxels) {
   const int num_x_voxels = xyz_voxels.size();
   int block_id = 0;
   GraphTable graph_table;
-  std::vector<RangeVoxel3D> merge_results;
+  std::vector<Block3D> merge_results;
   merge_results.reserve(kMapXYZSize);
-  std::set<RangeVoxel3DWapper> unmerged_voxels;
+  std::set<Block3DWrapper> unmerged_voxels;
   for (int i = 0; i < num_x_voxels; ++i) {
-    std::set<RangeVoxel3DWapper> merged_voxels;
+    std::set<Block3DWrapper> merged_voxels;
     const int num_yz_voxels = xyz_voxels[i].size();
     for (int j = 0; j < num_yz_voxels; ++j) {
-      const RangeVoxel2D new_yz_voxel = xyz_voxels[i][j];
+      const Block2D new_yz_voxel = xyz_voxels[i][j];
       // Find the range to merge in unmerged_voxels.
       const int voxel_y_min_lb = new_yz_voxel.y_min_ - kMergeBuffer + 1;
       const int voxel_y_min_ub = new_yz_voxel.y_min_ + kMergeBuffer - 1;
@@ -363,56 +359,45 @@ std::vector<RangeVoxel3D> GridAstar::Merge3DVoxelAlongX(
         const int plug_z_min = it->plug_.z_min_;
         const int plug_y_max = it->plug_.y_max_;
         const int plug_z_max = it->plug_.z_max_;
-
-        const int overlap_y_min = std::max(plug_y_min, new_yz_voxel.y_min_);
-        const int overlap_y_max = std::min(plug_y_max, new_yz_voxel.y_max_);
-        const int overlap_z_min = std::max(plug_z_min, new_yz_voxel.z_min_);
-        const int overlap_z_max = std::min(plug_z_max, new_yz_voxel.z_max_);
-
         if (voxel_y_min_lb <= plug_y_min && plug_y_min <= voxel_y_min_ub &&
             voxel_z_min_lb <= plug_z_min && plug_z_min <= voxel_z_min_ub &&
             voxel_y_max_lb <= plug_y_max && plug_y_max <= voxel_y_max_ub &&
             voxel_z_max_lb <= plug_z_max && plug_z_max <= voxel_z_max_ub) {
           // Merge and add to the result.
-          RangeVoxel3DWapper new_voxel_wrapper = *it;
+          Block3DWrapper new_voxel_wrapper = *it;
           new_voxel_wrapper.plug_ = new_yz_voxel;
-          new_voxel_wrapper.range_voxel_3d_.x_max_ = i;
-          new_voxel_wrapper.range_voxel_3d_.y_min_ = std::min(
-              new_voxel_wrapper.range_voxel_3d_.y_min_, new_yz_voxel.y_min_);
-          new_voxel_wrapper.range_voxel_3d_.y_max_ = std::max(
-              new_voxel_wrapper.range_voxel_3d_.y_max_, new_yz_voxel.y_max_);
-          new_voxel_wrapper.range_voxel_3d_.z_min_ = std::min(
-              new_voxel_wrapper.range_voxel_3d_.z_min_, new_yz_voxel.z_min_);
-          new_voxel_wrapper.range_voxel_3d_.z_max_ = std::max(
-              new_voxel_wrapper.range_voxel_3d_.z_max_, new_yz_voxel.z_max_);
+          new_voxel_wrapper.block_3d_.EmplaceBlockBack(new_yz_voxel);
           merged_voxels.insert(new_voxel_wrapper);
           // Erase the range.
           unmerged_voxels.erase(it++);
           is_merged = true;
           break;
-        } else if (overlap_y_max - overlap_y_min + 1 >= kConnectivityMinY &&
-                   overlap_z_max - overlap_z_min + 1 >= kConnectivityMinZ) {
-          // If two voxels are partially overlapped, add a new edge to the
-          // graph.
-          const int key_point_y = (overlap_y_min + overlap_y_max) / 2;
-          const int key_point_z = (overlap_z_min + overlap_z_max) / 2;
-          const int key_point_x = i;
-          const KeyPoint last_key_point(key_point_x - 1, key_point_y,
-                                        key_point_z, it->block_id_);
-          const KeyPoint key_point(key_point_x, key_point_y, key_point_z,
-                                   block_id);
-          graph_table.AddNewEdge(last_key_point, key_point);
-          it++;
-        } else {
-          it++;
         }
+        const std::vector<Block2D> overlap_blocks =
+            new_yz_voxel.GetOverlap(it->plug_);
+        for (const Block2D &overlap_block : overlap_blocks) {
+          const int overlap_y_min = overlap_block.y_min_;
+          const int overlap_z_min = overlap_block.z_min_;
+          const int overlap_y_max = overlap_block.y_max_;
+          const int overlap_z_max = overlap_block.z_max_;
+          if (overlap_y_max - overlap_y_min + 1 >= kConnectivityMinY &&
+              overlap_z_max - overlap_z_min + 1 >= kConnectivityMinZ) {
+            // If two voxels are partially overlapped, add a new edge to the
+            // graph.
+            const int key_block_x = i;
+            const KeyBlock last_key_block(
+                key_block_x - 1, it->block_3d_.block_id_, overlap_block);
+            const KeyBlock key_block(key_block_x, block_id, overlap_block);
+            graph_table.AddNewEdge(last_key_block, key_block);
+            break;
+          }
+        }
+        it++;
       }
       if (!is_merged) {
-        const RangeVoxel3D new_voxel(i, i, new_yz_voxel.y_min_,
-                                     new_yz_voxel.y_max_, new_yz_voxel.z_min_,
-                                     new_yz_voxel.z_max_);
-        const RangeVoxel3DWapper new_voxel_wrapper(new_voxel, new_yz_voxel,
-                                                   block_id);
+        const Block3D new_voxel(i, new_yz_voxel);
+        const Block3DWrapper new_voxel_wrapper(new_voxel, new_yz_voxel,
+                                               block_id);
         // Update block id of next voxel.
         ++block_id;
         merged_voxels.insert(new_voxel_wrapper);
@@ -420,13 +405,13 @@ std::vector<RangeVoxel3D> GridAstar::Merge3DVoxelAlongX(
     }
     // Add all item of unmerged_voxels to result.
     for (auto &item : unmerged_voxels) {
-      merge_results.emplace_back(item.range_voxel_3d_);
+      merge_results.emplace_back(item.block_3d_);
     }
     unmerged_voxels = merged_voxels;
   }
   // Add all item of unmerged_voxels to result.
   for (auto &item : unmerged_voxels) {
-    merge_results.emplace_back(item.range_voxel_3d_);
+    merge_results.emplace_back(item.block_3d_);
   }
   // Update topology of the graph.
   graph_table.UpdateEdgesInSameBlock();
@@ -435,18 +420,18 @@ std::vector<RangeVoxel3D> GridAstar::Merge3DVoxelAlongX(
 }
 
 void GridAstar::Merge3DVoxelAlongXUnitTest() {
-  std::vector<std::vector<RangeVoxel2D>> xyz_voxels;
+  std::vector<std::vector<Block2D>> xyz_voxels;
   xyz_voxels.resize(7);
-  xyz_voxels[0].emplace_back(RangeVoxel2D(0, 4, 0, 4));
-  xyz_voxels[0].emplace_back(RangeVoxel2D(5, 10, 0, 5));
-  xyz_voxels[1].emplace_back(RangeVoxel2D(0, 4, 0, 4));
-  xyz_voxels[1].emplace_back(RangeVoxel2D(5, 10, 0, 4));
-  xyz_voxels[2].emplace_back(RangeVoxel2D(0, 4, 0, 4));
-  xyz_voxels[2].emplace_back(RangeVoxel2D(5, 10, 0, 3));
-  xyz_voxels[4].emplace_back(RangeVoxel2D(0, 4, 0, 4));
-  xyz_voxels[5].emplace_back(RangeVoxel2D(0, 4, 0, 4));
-  xyz_voxels[6].emplace_back(RangeVoxel2D(0, 4, 0, 4));
-  std::vector<RangeVoxel3D> result = Merge3DVoxelAlongX(xyz_voxels);
+  xyz_voxels[0].emplace_back(Block2D(0, 4, 0, 4));
+  xyz_voxels[0].emplace_back(Block2D(5, 10, 0, 5));
+  xyz_voxels[1].emplace_back(Block2D(0, 4, 0, 4));
+  xyz_voxels[1].emplace_back(Block2D(5, 10, 0, 4));
+  xyz_voxels[2].emplace_back(Block2D(0, 4, 0, 4));
+  xyz_voxels[2].emplace_back(Block2D(5, 10, 0, 3));
+  xyz_voxels[4].emplace_back(Block2D(0, 4, 0, 4));
+  xyz_voxels[5].emplace_back(Block2D(0, 4, 0, 4));
+  xyz_voxels[6].emplace_back(Block2D(0, 4, 0, 4));
+  std::vector<Block3D> result = Merge3DVoxelAlongX(xyz_voxels);
   std::cout << "[Result Size]: " << result.size() << std::endl;
   for (auto item : result) {
     std::cout << "[Item]: (" << item.x_min_ << ", " << item.x_max_ << "), ("
@@ -610,6 +595,146 @@ float GridAstar::AstarPathDistance(const Eigen::Vector3f &start_p,
               << "to " << std::endl
               << end_p << std::endl;
     return (end_p - start_p).norm();
+  }
+}
+
+float GridAstar::BlockPathDistance(const Eigen::Vector3f &start_p,
+                                   const Eigen::Vector3f &end_p) {
+  int index_start_x =
+      static_cast<int>(std::floor((start_p.x() - min_x_) / resolution_));
+  int index_start_y =
+      static_cast<int>(std::floor((start_p.y() - min_y_) / resolution_));
+  int index_start_z =
+      static_cast<int>(std::floor((start_p.z() - min_z_) / resolution_));
+  int index_end_x =
+      static_cast<int>(std::floor((end_p.x() - min_x_) / resolution_));
+  int index_end_y =
+      static_cast<int>(std::floor((end_p.y() - min_y_) / resolution_));
+  int index_end_z =
+      static_cast<int>(std::floor((end_p.z() - min_z_) / resolution_));
+  // Find the block that contains the start point.
+  int num_blocks = merge_map_3d_.size();
+  bool is_start_locked = false;
+  bool is_end_locked = false;
+  int start_block_index = -1;
+  int end_block_index = -1;
+  for (int i = 0; i < num_blocks; ++i) {
+    if (is_start_locked && is_end_locked) {
+      break;
+    }
+    if (!is_start_locked && merge_map_3d_[i].IsInBlock(
+                                index_start_x, index_start_y, index_start_z)) {
+      start_block_index = merge_map_3d_[i].block_id_;
+      is_start_locked = true;
+    }
+    if (!is_end_locked &&
+        merge_map_3d_[i].IsInBlock(index_end_x, index_end_y, index_end_z)) {
+      end_block_index = merge_map_3d_[i].block_id_;
+      is_end_locked = true;
+    }
+  }
+  if (start_block_index == end_block_index) {
+    // TODO: Calculate the distance between two points in the same block.
+    return (end_p - start_p).norm();
+  } else {
+    // Dijkstra algorithm to find the path between two blocks.
+    const int nums_node = graph_table_.nodes_.size();
+    std::vector<int> father_nodes(nums_node, -1);
+    int end_father = -1;
+    std::vector<int> is_visited(nums_node, 0);
+    int is_end_visited = 0;
+    std::vector<float> distance(nums_node, 0.0);
+    float end_distance = 0.0;
+    std::priority_queue<std::pair<int, float>,
+                        std::vector<std::pair<int, float>>, DijkstraNodeCmp>
+        dijkstra_q;
+    // Add the key block of start block to the queue.
+    for (int i = 0; i < nums_node; ++i) {
+      const KeyBlock key_block = graph_table_.nodes_[i].key_block_;
+      if (key_block.block_id_ == start_block_index) {
+        // Compute the rough distance between the start point and the key block.
+        const float delta_x = index_start_x - key_block.x_;
+        const float delta_y = index_start_y - 0.5 * (key_block.block_.y_min_ +
+                                                     key_block.block_.y_max_);
+        const float delta_z = index_start_z - 0.5 * (key_block.block_.z_min_ +
+                                                     key_block.block_.z_max_);
+        const float edge_weight = std::hypot(delta_x, delta_y, delta_z);
+        dijkstra_q.emplace(i, edge_weight);
+        is_visited[i] = 1;
+        father_nodes[i] = -1;
+        distance[i] = edge_weight;
+      }
+    }
+    bool is_path_found = false;
+    while (!dijkstra_q.empty()) {
+      // Select the node with the smallest distance.
+      std::pair<int, float> cur_node = dijkstra_q.top();
+      dijkstra_q.pop();
+      // Check if the node is the end block.
+      if (cur_node.first == -1) {
+        is_path_found = true;
+        break;
+      }
+      // Skip nodes that is in Closed state.
+      if (is_visited[cur_node.first] == 2) {
+        continue;
+      }
+      // Set the node to Closed state.
+      is_visited[cur_node.first] = 2;
+      const GraphNode graph_node = graph_table_.nodes_[cur_node.first];
+      // Check if the node is in the end block.
+      if (graph_node.key_block_.block_id_ == end_block_index) {
+        const float delta_x = index_end_x - graph_node.key_block_.x_;
+        const float delta_y =
+            index_end_y - 0.5 * (graph_node.key_block_.block_.y_min_ +
+                                 graph_node.key_block_.block_.y_max_);
+        const float delta_z =
+            index_end_z - 0.5 * (graph_node.key_block_.block_.z_min_ +
+                                 graph_node.key_block_.block_.z_max_);
+        const float edge_weight =
+            std::hypot(delta_x, delta_y, delta_z) + cur_node.second;
+        if (is_end_visited == 0 ||
+            (is_end_visited == 1 && edge_weight < end_distance)) {
+          end_father = cur_node.first;
+          is_end_visited = 1;
+          end_distance = edge_weight;
+          dijkstra_q.emplace(-1, edge_weight);
+        }
+      }
+      // Expand the node.
+      const int num_edges = graph_node.edges_.size();
+      for (int i = 0; i < num_edges; ++i) {
+        const int neighbor_index = graph_node.edges_[i].dest_id_;
+        const float edge_weight =
+            graph_node.edges_[i].weight_ + cur_node.second;
+        if (is_visited[neighbor_index] == 0 ||
+            (is_visited[neighbor_index] == 1 &&
+             edge_weight < distance[neighbor_index])) {
+          father_nodes[neighbor_index] = cur_node.first;
+          is_visited[neighbor_index] = 1;
+          distance[neighbor_index] = edge_weight;
+          dijkstra_q.emplace(neighbor_index, edge_weight);
+        }
+      }
+    }
+    if (is_path_found) {
+      std::vector<int> path_blocks;
+      int cur_node_index = end_father;
+      while (cur_node_index != -1) {
+        path_blocks.emplace_back(cur_node_index);
+        cur_node_index = father_nodes[cur_node_index];
+      }
+      std::cout << "[Block Astar] waypoint generated!! waypoint num: "
+                << path_blocks.size() << std::endl;
+      block_path_ = path_blocks;
+      return end_distance;
+    } else {
+      std::cout << "[WARNING] no path !! from " << std::endl
+                << start_p << std::endl
+                << "to " << std::endl
+                << end_p << std::endl;
+      return (end_p - start_p).norm();
+    }
   }
 }
 

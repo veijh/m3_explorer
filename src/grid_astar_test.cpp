@@ -48,7 +48,11 @@ int main(int argc, char **argv) {
   ros::Publisher topo_pub =
       nh.advertise<visualization_msgs::Marker>("/topo_point", 10);
 
-  ros::Rate rate(0.5);
+  // visualize topo point
+  ros::Publisher block_path_pub =
+      nh.advertise<visualization_msgs::MarkerArray>("/block_path", 10);
+
+  ros::Rate rate(0.2);
 
   visualization_msgs::Marker cube_list;
   cube_list.header.frame_id = "map";
@@ -97,7 +101,20 @@ int main(int argc, char **argv) {
   topo_list.pose.orientation.w = 1.0;
   topo_list.id = 0;
   topo_list.type = visualization_msgs::Marker::LINE_LIST;
-  topo_list.scale.x = 0.15;
+  topo_list.scale.x = 0.1;
+
+  visualization_msgs::MarkerArray blocks;
+  visualization_msgs::Marker block;
+  block.header.frame_id = "map";
+  block.header.stamp = ros::Time::now();
+  block.ns = "block";
+  block.action = visualization_msgs::Marker::ADD;
+  block.pose.orientation.w = 1.0;
+  block.type = visualization_msgs::Marker::CUBE;
+  block.color.r = 0.2;
+  block.color.g = 0.2;
+  block.color.g = 0.2;
+  block.color.a = 0.8;
 
   const float min_x = -10.5;
   const float max_x = 10.5;
@@ -201,14 +218,14 @@ int main(int argc, char **argv) {
 
     track.SetStartTime();
     voxels.markers.clear();
-    const std::vector<std::vector<RangeVoxel2D>> &merge_map_2d =
+    const std::vector<std::vector<Block2D>> &merge_map_2d =
         grid_astar.merge_map_2d();
     int voxel2d_id = 0;
     const int num_x_voxel2d = merge_map_2d.size();
     for (int i = rolling_x; i < rolling_x + 1; ++i) {
       const int num_voxel2d = merge_map_2d[i].size();
       for (int j = 0; j < num_voxel2d; ++j) {
-        const RangeVoxel2D range_voxel_2d = merge_map_2d[i][j];
+        const Block2D range_voxel_2d = merge_map_2d[i][j];
         voxel.id = voxel2d_id;
         voxel.color.a = 1.0;
         voxel.color.r = distrib(gen);
@@ -237,11 +254,11 @@ int main(int argc, char **argv) {
 
     track.SetStartTime();
     voxels.markers.clear();
-    const std::vector<RangeVoxel3D> &merge_map_3d = grid_astar.merge_map_3d();
+    const std::vector<Block3D> &merge_map_3d = grid_astar.merge_map_3d();
     int voxel3d_id = 0;
     const int num_voxel3d = merge_map_3d.size();
     for (int i = 0; i < num_voxel3d; ++i) {
-      const RangeVoxel3D range_voxel_3d = merge_map_3d[i];
+      const Block3D range_voxel_3d = merge_map_3d[i];
       voxel.id = voxel3d_id;
       voxel.color.a = 1.0;
       voxel.color.r = distrib(gen);
@@ -277,50 +294,52 @@ int main(int argc, char **argv) {
     const GraphTable &graph_table = grid_astar.graph_table();
     const int num_node = graph_table.nodes_.size();
     for (int i = 0; i < num_node; ++i) {
-      if (!graph_table.nodes_[i].edges_.empty()) {
-        const KeyPoint key_point = graph_table.nodes_[i].key_point_;
-        const float r = distrib(gen);
-        const float g = distrib(gen);
-        const float b = distrib(gen);
-        for (int j = 0; j < graph_table.nodes_[i].edges_.size(); ++j) {
-          topo_list.points.emplace_back();
-          topo_list.points.back().x =
-              min_x + resolution * key_point.x_ + 0.5 * resolution;
-          topo_list.points.back().y =
-              min_y + resolution * key_point.y_ + 0.5 * resolution;
-          topo_list.points.back().z =
-              min_z + resolution * key_point.z_ + 0.5 * resolution;
-          topo_list.colors.emplace_back();
-          topo_list.colors.back().a = 1.0;
-          topo_list.colors.back().r = r;
-          topo_list.colors.back().g = g;
-          topo_list.colors.back().b = b;
-          const int neighbor_id = graph_table.nodes_[i].edges_[j].dest_id_;
-          const KeyPoint key_point_neighbor =
-              graph_table.nodes_[neighbor_id].key_point_;
-          topo_list.points.emplace_back();
-          topo_list.points.back().x =
-              min_x + key_point_neighbor.x_ * resolution + 0.5 * resolution;
-          topo_list.points.back().y =
-              min_y + key_point_neighbor.y_ * resolution + 0.5 * resolution;
-          topo_list.points.back().z =
-              min_z + key_point_neighbor.z_ * resolution + 0.5 * resolution;
-          topo_list.colors.emplace_back();
-          topo_list.colors.back().a = 1.0;
-          topo_list.colors.back().r = r;
-          topo_list.colors.back().g = g;
-          topo_list.colors.back().b = b;
-        }
+      const KeyBlock &key_block = graph_table.nodes_[i].key_block_;
+      const int num_ranges = key_block.block_.ranges_.size();
+      const int block_x = key_block.x_;
+      const float r = distrib(gen);
+      const float g = distrib(gen);
+      const float b = distrib(gen);
+      const float a = 1.0;
+      for (int j = 0; j < num_ranges; ++j) {
+        const RangeVoxel &range = key_block.block_.ranges_[j];
+        const int range_y = key_block.block_.y_min_ + j;
+        // Add start point.
+        topo_list.points.emplace_back();
+        topo_list.points.back().x =
+            min_x + block_x * resolution + 0.5 * resolution;
+        topo_list.points.back().y =
+            min_y + range_y * resolution + 0.5 * resolution;
+        topo_list.points.back().z =
+            min_z + range.min_ * resolution + 0.5 * resolution;
+        topo_list.colors.emplace_back();
+        topo_list.colors.back().r = r;
+        topo_list.colors.back().g = g;
+        topo_list.colors.back().b = b;
+        topo_list.colors.back().a = a;
+        // Add end point.
+        topo_list.points.emplace_back();
+        topo_list.points.back().x =
+            min_x + block_x * resolution + 0.5 * resolution;
+        topo_list.points.back().y =
+            min_y + range_y * resolution + 0.5 * resolution;
+        topo_list.points.back().z =
+            min_z + range.max_ * resolution + 0.5 * resolution;
+        topo_list.colors.emplace_back();
+        topo_list.colors.back().r = r;
+        topo_list.colors.back().g = g;
+        topo_list.colors.back().b = b;
+        topo_list.colors.back().a = a;
       }
     }
     topo_pub.publish(topo_list);
-    track.OutputPassingTime("Visualize Topo Point");
+    track.OutputPassingTime("Visualize Key Blocks");
 
     // 设定起点终点
-    Eigen::Vector3f start_pt = {xy(gen), xy(gen), z(gen)};
-    Eigen::Vector3f end_pt = {xy(gen), xy(gen), z(gen)};
-    // Eigen::Vector3f start_pt = {0.0, 0.0, 1.0};
-    // Eigen::Vector3f end_pt = {2.0, 0.0, 1.0};
+    // Eigen::Vector3f start_pt = {xy(gen), xy(gen), z(gen)};
+    // Eigen::Vector3f end_pt = {xy(gen), xy(gen), z(gen)};
+    Eigen::Vector3f start_pt = {7.5, 7.5, 1.5};
+    Eigen::Vector3f end_pt = {-7.5, -7.5, 1.5};
 
     // 检查是否起点、终点是否合法
     int index_start_x =
@@ -341,6 +360,61 @@ int main(int argc, char **argv) {
             GridAstar::GridState::kOcc) {
       continue;
     }
+
+    // Djikstra寻路，并统计时间
+    track.SetStartTime();
+    grid_astar.BlockPathDistance(start_pt, end_pt);
+    track.OutputPassingTime("--Djikstra Search Total--");
+    // 可视化
+    blocks.markers.clear();
+    const std::vector<int> &block_path = grid_astar.block_path();
+    std::unordered_map<int, int> block_id_map;
+    for (int i = 0; i < merge_map_3d.size(); ++i) {
+      if (block_id_map.find(merge_map_3d[i].block_id_) == block_id_map.end()) {
+        block_id_map[merge_map_3d[i].block_id_] = i;
+      } else {
+        std::cout << "Error: block_id_map has duplicate key." << std::endl;
+        std::cout << "block_id: " << merge_map_3d[i].block_id_ << std::endl;
+      }
+    }
+    std::vector<int> block_path_id;
+    for (int i = 0; i < block_path.size(); ++i) {
+      const int node_id = block_path[i];
+      const int block_id = graph_table.nodes_[node_id].key_block_.block_id_;
+      block_path_id.emplace_back(block_id_map[block_id]);
+    }
+    std::unique(block_path_id.begin(), block_path_id.end());
+    const int num_block_path_id = block_path_id.size();
+    int block_3d_id = 0;
+    for (int i = 0; i < num_block_path_id; ++i) {
+      const Block3D block_3d = merge_map_3d[block_path_id[i]];
+      block.id = block_3d_id;
+      block.color.a = 0.5;
+      block.color.r = distrib(gen);
+      block.color.g = distrib(gen);
+      block.color.b = distrib(gen);
+      block.scale.x = resolution * (block_3d.x_max_ - block_3d.x_min_ + 1);
+      block.scale.y = resolution * (block_3d.y_max_ - block_3d.y_min_ + 1);
+      block.scale.z = resolution * (block_3d.z_max_ - block_3d.z_min_ + 1);
+      block.pose.position.x =
+          min_x + 0.5 * (block_3d.x_min_ + block_3d.x_max_) * resolution +
+          0.5 * resolution;
+      block.pose.position.y =
+          min_y + 0.5 * (block_3d.y_min_ + block_3d.y_max_) * resolution +
+          0.5 * resolution;
+      block.pose.position.z =
+          min_z + 0.5 * (block_3d.z_min_ + block_3d.z_max_) * resolution +
+          0.5 * resolution;
+      ++block_3d_id;
+      blocks.markers.emplace_back(block);
+    }
+    for (int i = num_block_path_id; i < 100; ++i) {
+      block.id = block_3d_id;
+      block.color.a = 0.0;
+      ++block_3d_id;
+      blocks.markers.emplace_back(block);
+    }
+    block_path_pub.publish(blocks);
 
     // A*寻路，并统计时间
     track.SetStartTime();
