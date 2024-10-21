@@ -80,6 +80,15 @@ float Block2D::GetRoughDistance(const Block2D &block, const int delta_x) const {
   }
 }
 
+bool Block2D::GetRangeAtY(const int y, RangeVoxel *range) const {
+  if (y < y_min_ || y > y_max_) {
+    return false;
+  }
+  const int y_index = y - y_min_;
+  *range = ranges_[y_index];
+  return true;
+}
+
 Block3D::Block3D(const int x, const Block2D &block)
     : x_min_(x), x_max_(x), y_min_(block.y_min_), y_max_(block.y_max_),
       z_min_(block.z_min_), z_max_(block.z_max_) {

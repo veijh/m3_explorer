@@ -52,7 +52,11 @@ int main(int argc, char **argv) {
   ros::Publisher block_path_pub =
       nh.advertise<visualization_msgs::MarkerArray>("/block_path", 10);
 
-  ros::Rate rate(0.2);
+  // visualize ilqr_waypoint
+  ros::Publisher ilqr_pub =
+      nh.advertise<visualization_msgs::Marker>("/ilqr_wp", 10);
+
+  ros::Rate rate(0.1);
 
   visualization_msgs::Marker cube_list;
   cube_list.header.frame_id = "map";
@@ -75,10 +79,6 @@ int main(int argc, char **argv) {
   waypoint.pose.orientation.w = 1.0;
   waypoint.id = 0;
   waypoint.type = visualization_msgs::Marker::LINE_STRIP;
-  waypoint.color.r = 1.0;
-  waypoint.color.g = 1.0;
-  waypoint.color.b = 1.0;
-  waypoint.color.a = 1.0;
 
   visualization_msgs::MarkerArray voxels;
   visualization_msgs::Marker voxel;
@@ -365,6 +365,7 @@ int main(int argc, char **argv) {
     track.SetStartTime();
     grid_astar.BlockPathDistance(start_pt, end_pt);
     track.OutputPassingTime("--Djikstra Search Total--");
+
     // 可视化
     blocks.markers.clear();
     const std::vector<int> &block_path = grid_astar.block_path();
@@ -416,12 +417,41 @@ int main(int argc, char **argv) {
     }
     block_path_pub.publish(blocks);
 
+    track.SetStartTime();
+    std::cout << "Refine Block Path Distance: "
+              << grid_astar.BlockPathRefine(grid_astar.block_path(), start_pt,
+                                            end_pt)
+              << std::endl;
+    track.OutputPassingTime("Block Path Refine");
+
+    // 可视化轨迹
+    waypoint.points.clear();
+    waypoint.color.r = 0.0;
+    waypoint.color.g = 0.4;
+    waypoint.color.b = 0.4;
+    waypoint.color.a = 1.0;
+    const std::vector<std::vector<float>> &ilqr_path = grid_astar.ilqr_path();
+    const int ilqr_wp_num = ilqr_path.size();
+    for (int i = 0; i < ilqr_wp_num; ++i) {
+      geometry_msgs::Point wp_pos;
+      wp_pos.x = min_x + ilqr_path[i][0] * resolution;
+      wp_pos.y = min_y + ilqr_path[i][1] * resolution;
+      wp_pos.z = min_z + ilqr_path[i][2] * resolution;
+      waypoint.points.emplace_back(wp_pos);
+    }
+    ilqr_pub.publish(waypoint);
+
     // A*寻路，并统计时间
     track.SetStartTime();
-    grid_astar.AstarPathDistance(start_pt, end_pt);
+    std::cout << "Astar Search Distance: "
+              << grid_astar.AstarPathDistance(start_pt, end_pt) << std::endl;
     track.OutputPassingTime("--Astar Search Total--");
     // 可视化轨迹
     waypoint.points.clear();
+    waypoint.color.r = 1.0;
+    waypoint.color.g = 1.0;
+    waypoint.color.b = 1.0;
+    waypoint.color.a = 1.0;
     const std::vector<std::shared_ptr<GridAstarNode>> &path = grid_astar.path();
     const int wp_num = path.size();
     for (int i = 0; i < wp_num; ++i) {

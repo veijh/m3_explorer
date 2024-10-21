@@ -75,6 +75,7 @@ public:
 class KeyBlock {
 public:
   int x_ = 0;
+  // ID of Block3D
   int block_id_ = 0;
   Block2D block_;
 
@@ -130,6 +131,7 @@ private:
   std::vector<Block3D> merge_map_3d_;
   std::vector<std::shared_ptr<GridAstarNode>> path_;
   std::vector<int> block_path_;
+  std::vector<std::vector<float>> ilqr_path_;
   // Return the set of merged_voxels.
   std::vector<Block2D>
   Merge2DVoxelAlongY(const std::vector<std::vector<RangeVoxel>> &yz_voxels);
@@ -144,6 +146,7 @@ public:
   const std::vector<Block3D> &merge_map_3d() const;
   const std::vector<std::shared_ptr<GridAstarNode>> &path() const;
   const std::vector<int> &block_path() const;
+  const std::vector<std::vector<float>> &ilqr_path() const;
   const GraphTable &graph_table() const;
 
   GridAstar(const float min_x, const float max_x, const float min_y,
@@ -161,6 +164,20 @@ public:
                           const Eigen::Vector3f &end_p);
   float BlockPathDistance(const Eigen::Vector3f &start_p,
                           const Eigen::Vector3f &end_p);
+  float BlockPathRefine(const std::vector<int> &block_path,
+                        const Eigen::Vector3f &start_p,
+                        const Eigen::Vector3f &end_p);
+
+  std::pair<Eigen::Matrix4f, Eigen::Vector4f>
+  GetCost(const Eigen::Vector4f &xu, const float y_lb, const float y_ub,
+          const float z_lb, const float z_ub);
+  float GetRealCost(const Eigen::Vector4f &xu, const float y_lb,
+                    const float y_ub, const float z_lb, const float z_ub);
+  std::pair<Eigen::Matrix4f, Eigen::Vector4f>
+  GetTermCost(const Eigen::Vector4f &xu, const float target_y,
+              const float target_z);
+  float GetRealTermCost(const Eigen::Vector4f &xu, const float target_y,
+                        const float target_z);
   inline float CalHeurScore(const std::shared_ptr<GridAstarNode> &node,
                             const Eigen::Vector3f &end_p);
 };

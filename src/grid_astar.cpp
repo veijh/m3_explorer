@@ -1,5 +1,6 @@
 #include "m3_explorer/grid_astar.h"
 #include "m3_explorer/time_track.hpp"
+#include <Eigen/Dense>
 #include <algorithm>
 #include <queue>
 #include <unordered_map>
@@ -17,6 +18,11 @@ constexpr int kFilterMinY = 4;
 constexpr int kFilterMinZ = 4;
 constexpr int kConnectivityMinY = 4;
 constexpr int kConnectivityMinZ = 4;
+constexpr int kMaxIteration = 100;
+constexpr float kConvergenceThreshold = 0.01;
+constexpr float kTermWeight = 100.0;
+constexpr float kBndWeight = 100.0;
+constexpr float kWeight = 0.2;
 } // namespace
 
 const std::vector<Eigen::Vector3i> expand_offset = {
@@ -122,6 +128,10 @@ const std::vector<std::shared_ptr<GridAstarNode>> &GridAstar::path() const {
 const std::vector<int> &GridAstar::block_path() const { return block_path_; }
 
 const GraphTable &GridAstar::graph_table() const { return graph_table_; }
+
+const std::vector<std::vector<float>> &GridAstar::ilqr_path() const {
+  return ilqr_path_;
+}
 
 void GridAstar::UpdateFromMap(const octomap::OcTree *ocmap,
                               const octomap::point3d &bbx_min,
@@ -578,8 +588,10 @@ float GridAstar::AstarPathDistance(const Eigen::Vector3f &start_p,
       const int delta_x = last_path_node->index_x_ - path_node->index_x_;
       const int delta_y = last_path_node->index_y_ - path_node->index_y_;
       const int delta_z = last_path_node->index_z_ - path_node->index_z_;
-      distance += resolution_ *
-                  (std::abs(delta_x) + std::abs(delta_y) + std::abs(delta_z));
+      // distance += resolution_ *
+      //             (std::abs(delta_x) + std::abs(delta_y) +
+      //             std::abs(delta_z));
+      distance += resolution_ * std::hypot(delta_x, delta_y, delta_z);
       path_.emplace_back(path_node);
       last_path_node = path_node;
       path_node = path_node->father_node_;
@@ -600,6 +612,7 @@ float GridAstar::AstarPathDistance(const Eigen::Vector3f &start_p,
 
 float GridAstar::BlockPathDistance(const Eigen::Vector3f &start_p,
                                    const Eigen::Vector3f &end_p) {
+  block_path_.clear();
   int index_start_x =
       static_cast<int>(std::floor((start_p.x() - min_x_) / resolution_));
   int index_start_y =
@@ -726,6 +739,7 @@ float GridAstar::BlockPathDistance(const Eigen::Vector3f &start_p,
       }
       std::cout << "[Block Astar] waypoint generated!! waypoint num: "
                 << path_blocks.size() << std::endl;
+      std::reverse(path_blocks.begin(), path_blocks.end());
       block_path_ = path_blocks;
       return end_distance;
     } else {
@@ -736,6 +750,293 @@ float GridAstar::BlockPathDistance(const Eigen::Vector3f &start_p,
       return (end_p - start_p).norm();
     }
   }
+}
+
+float GridAstar::BlockPathRefine(const std::vector<int> &block_path,
+                                 const Eigen::Vector3f &start_p,
+                                 const Eigen::Vector3f &end_p) {
+  if (block_path.empty()) {
+    return (end_p - start_p).norm();
+  }
+  // Determine the 3D index of the start point and end point.
+  int index_start_x =
+      static_cast<int>(std::floor((start_p.x() - min_x_) / resolution_));
+  int index_start_y =
+      static_cast<int>(std::floor((start_p.y() - min_y_) / resolution_));
+  int index_start_z =
+      static_cast<int>(std::floor((start_p.z() - min_z_) / resolution_));
+  int index_end_x =
+      static_cast<int>(std::floor((end_p.x() - min_x_) / resolution_));
+  int index_end_y =
+      static_cast<int>(std::floor((end_p.y() - min_y_) / resolution_));
+  int index_end_z =
+      static_cast<int>(std::floor((end_p.z() - min_z_) / resolution_));
+  // Determine the index of block in the vector according to the block_id.
+  std::unordered_map<int, int> block_id_map;
+  for (int i = 0; i < merge_map_3d_.size(); ++i) {
+    if (block_id_map.find(merge_map_3d_[i].block_id_) == block_id_map.end()) {
+      block_id_map[merge_map_3d_[i].block_id_] = i;
+    } else {
+      std::cout << "Error: block_id_map has duplicate key." << std::endl;
+      std::cout << "block_id: " << merge_map_3d_[i].block_id_ << std::endl;
+    }
+  }
+  // Construct the constraints of keyframes.
+  std::vector<Block2D> key_frames;
+  key_frames.reserve(1000);
+  std::vector<int> key_frame_x;
+  key_frame_x.reserve(1000);
+  // Segment 0
+  {
+    const int node_id = block_path.front();
+    const KeyBlock &block2d = graph_table_.nodes_[node_id].key_block_;
+    const int block_x = block2d.x_;
+    const int x_step =
+        index_start_x == block_x ? 0 : (index_start_x < block_x ? 1 : -1);
+    const Block3D &block3d = merge_map_3d_[block_id_map[block2d.block_id_]];
+    const int x_min = block3d.x_min_;
+    for (int i = index_start_x; i != block_x; i += x_step) {
+      key_frames.emplace_back(block3d.blocks_[i - x_min]);
+      key_frame_x.emplace_back(i);
+      // std::cout << "A add key frame: " << i << std::endl;
+    }
+    key_frames.emplace_back(block2d.block_);
+    key_frame_x.emplace_back(block_x);
+  }
+  // Segment 1 to n-1
+  for (int i = 1; i < block_path.size(); ++i) {
+    const int last_node_id = block_path[i - 1];
+    const KeyBlock &last_block2d = graph_table_.nodes_[last_node_id].key_block_;
+    const int node_id = block_path[i];
+    const KeyBlock &block2d = graph_table_.nodes_[node_id].key_block_;
+    const int last_block_x = last_block2d.x_;
+    const int block_x = block2d.x_;
+    const int x_step =
+        last_block_x == block_x ? 0 : (last_block_x < block_x ? 1 : -1);
+    const Block3D &block3d = merge_map_3d_[block_id_map[block2d.block_id_]];
+    const int x_min = block3d.x_min_;
+    for (int i = last_block_x + x_step; i != block_x; i += x_step) {
+      key_frames.emplace_back(block3d.blocks_[i - x_min]);
+      key_frame_x.emplace_back(i);
+      // std::cout << "B add key frame: " << i << std::endl;
+    }
+    key_frames.emplace_back(block2d.block_);
+    key_frame_x.emplace_back(block_x);
+  }
+  // Segment n
+  {
+    const int node_id = block_path.back();
+    const KeyBlock &block2d = graph_table_.nodes_[node_id].key_block_;
+    const int block_x = block2d.x_;
+    const int x_step =
+        block_x == index_end_x ? 0 : (block_x < index_end_x ? 1 : -1);
+    const Block3D &block3d = merge_map_3d_[block_id_map[block2d.block_id_]];
+    const int x_min = block3d.x_min_;
+    for (int i = block_x; i != index_end_x; i += x_step) {
+      key_frames.emplace_back(block3d.blocks_[i - x_min]);
+      key_frame_x.emplace_back(i);
+      // std::cout << "C add key frame: " << i << std::endl;
+    }
+  }
+  // iLQR Path Optimization.
+  const int num_key_frames = key_frames.size();
+  Eigen::Matrix<float, 2, 4> F;
+  // clang-format off
+  F <<
+  1.0, 0.0, 1.0, 0.0,
+  0.0, 1.0, 0.0, 1.0;
+  // clang-format on
+  std::vector<Eigen::Matrix2f> K_mats(num_key_frames, Eigen::Matrix2f::Zero());
+  std::vector<Eigen::Vector2f> k_vecs(num_key_frames, Eigen::Vector2f::Zero());
+  // Construct the initial guess.
+  std::cout << "Construct the initial guess..." << std::endl;
+  std::vector<Eigen::Vector4f> xu_vecs(num_key_frames, Eigen::Vector4f::Zero());
+  std::vector<Eigen::Vector2f> x_hat_vecs(num_key_frames,
+                                          Eigen::Vector2f::Zero());
+  xu_vecs[0] << index_start_y, index_start_z, 0.0, 0.0;
+  x_hat_vecs[0] << index_start_y, index_start_z;
+  for (int i = 1; i < num_key_frames; ++i) {
+    const int y_lb = key_frames[i].y_min_;
+    const int y_ub = key_frames[i].y_max_;
+    const int y_initial = (y_lb + y_ub) / 2;
+    RangeVoxel z_range;
+    key_frames[i].GetRangeAtY(y_initial, &z_range);
+    const int z_initial = (z_range.min_ + z_range.max_) / 2;
+    xu_vecs[i].block<2, 1>(0, 0) << y_initial, z_initial;
+    xu_vecs[i - 1].block<2, 1>(2, 0) =
+        xu_vecs[i].block<2, 1>(0, 0) - xu_vecs[i - 1].block<2, 1>(0, 0);
+  }
+  std::cout << "start ilqr optimization..." << std::endl;
+  // Iteration Loop.
+  float cost_sum = 0.0;
+  float last_cost_sum = cost_sum;
+  for (int iter = 0; iter < kMaxIteration; ++iter) {
+    Eigen::Matrix2f V;
+    Eigen::Vector2f v;
+    cost_sum = 0.0;
+    // Backward Pass.
+    for (int k = num_key_frames - 1; k >= 0; --k) {
+      Eigen::Matrix4f Q;
+      Eigen::Vector4f q;
+      if (k == num_key_frames - 1) {
+        const std::pair<Eigen::Matrix4f, Eigen::Vector4f> cost =
+            GetTermCost(xu_vecs[k], index_end_y, index_end_z);
+        cost_sum += GetRealTermCost(xu_vecs[k], index_end_y, index_end_z);
+        Q = cost.first;
+        q = cost.second;
+      } else {
+        const int y_lb = key_frames[k].y_min_;
+        const int y_ub = key_frames[k].y_max_;
+        const int y_id =
+            std::clamp(static_cast<int>(xu_vecs[k](0)), y_lb, y_ub);
+        RangeVoxel z_range;
+        key_frames[k].GetRangeAtY(y_id, &z_range);
+        const std::pair<Eigen::Matrix4f, Eigen::Vector4f> cost =
+            GetCost(xu_vecs[k], y_lb, y_ub, z_range.min_, z_range.max_);
+        cost_sum +=
+            GetRealCost(xu_vecs[k], y_lb, y_ub, z_range.min_, z_range.max_);
+        Q = cost.first + F.transpose() * V * F;
+        q = cost.second + F.transpose() * v;
+      }
+      const Eigen::Matrix2f Qxx = Q.block<2, 2>(0, 0);
+      const Eigen::Matrix2f Qxu = Q.block<2, 2>(0, 2);
+      const Eigen::Matrix2f Qux = Q.block<2, 2>(2, 0);
+      const Eigen::Matrix2f Quu = Q.block<2, 2>(2, 2);
+      const Eigen::Vector2f qx = q.block<2, 1>(0, 0);
+      const Eigen::Vector2f qu = q.block<2, 1>(2, 0);
+      const Eigen::Matrix2f K_mat = K_mats[k];
+      const Eigen::Vector2f k_vec = k_vecs[k];
+      K_mats[k] = -Quu.inverse() * Qux;
+      k_vecs[k] = -Quu.inverse() * qu;
+      V = Qxx + Qxu * K_mat + K_mat.transpose() * Qux +
+          K_mat.transpose() * Quu * K_mat;
+      v = qx + Qxu * k_vec + K_mat.transpose() * qu +
+          K_mat.transpose() * Quu * k_vec;
+    }
+    // Forward Pass.
+    for (int k = 0; k < num_key_frames - 1; ++k) {
+      const Eigen::Vector2f x = xu_vecs[k].block<2, 1>(0, 0);
+      const Eigen::Vector2f u = xu_vecs[k].block<2, 1>(2, 0);
+      const float alpha = 1.0 - 1.0 * iter / static_cast<float>(kMaxIteration);
+      xu_vecs[k].block<2, 1>(2, 0) =
+          K_mats[k] * (x_hat_vecs[k] - x) + alpha * k_vecs[k] + u;
+      xu_vecs[k].block<2, 1>(0, 0) = x_hat_vecs[k];
+      x_hat_vecs[k + 1] = F * xu_vecs[k];
+    }
+    xu_vecs[num_key_frames - 1].block<2, 1>(0, 0) =
+        x_hat_vecs[num_key_frames - 1];
+    float path_length = 0.0;
+    for (int k = 0; k < num_key_frames - 1; ++k) {
+      path_length += std::hypot(xu_vecs[k].block<2, 1>(2, 0).norm(), 1.0);
+    }
+    std::cout << "iter: " << iter << ", cost: " << cost_sum
+              << ", path length: " << path_length << std::endl;
+    if (iter > 0 &&
+        std::fabs(cost_sum - last_cost_sum) < kConvergenceThreshold) {
+      break;
+    } else {
+      last_cost_sum = cost_sum;
+    }
+  }
+  ilqr_path_.clear();
+  ilqr_path_.reserve(num_key_frames);
+  for (int i = 0; i < num_key_frames; ++i) {
+    float x = key_frame_x[i];
+    float y = xu_vecs[i](0);
+    float z = xu_vecs[i](1);
+    ilqr_path_.emplace_back();
+    ilqr_path_.back() = {x, y, z};
+  }
+  return cost_sum;
+}
+
+std::pair<Eigen::Matrix4f, Eigen::Vector4f>
+GridAstar::GetCost(const Eigen::Vector4f &xu, const float y_lb,
+                   const float y_ub, const float z_lb, const float z_ub) {
+  float dcy = 0.0;
+  float ddcy = 0.0;
+  float dcz = 0.0;
+  float ddcz = 0.0;
+  // Constraints on y.
+  if (xu(0) > y_ub) {
+    dcy = kBndWeight * (xu(0) - y_ub);
+    ddcy = kBndWeight;
+  } else if (xu(0) < y_lb) {
+    dcy = kBndWeight * (xu(0) - y_lb);
+    ddcy = kBndWeight;
+  }
+  // Constraints on z.
+  if (xu(1) > z_ub) {
+    dcz = kBndWeight * (xu(1) - z_ub);
+    ddcz = kBndWeight;
+  } else if (xu(1) < z_lb) {
+    dcz = kBndWeight * (xu(1) - z_lb);
+    ddcz = kBndWeight;
+  }
+  std::pair<Eigen::Matrix4f, Eigen::Vector4f> cost;
+  // clang-format off
+  cost.first << 
+  ddcy, 0.0, 0.0, 0.0,
+  0.0, ddcz, 0.0, 0.0,
+  0.0, 0.0, kWeight, 0.0, 
+  0.0, 0.0, 0.0, kWeight;
+  cost.second <<
+  dcy,
+  dcz,
+  kWeight * xu(2),
+  kWeight * xu(3);
+  // clang-format on
+  return cost;
+}
+
+float GridAstar::GetRealCost(const Eigen::Vector4f &xu, const float y_lb,
+                             const float y_ub, const float z_lb,
+                             const float z_ub) {
+  float real_cost = 0.0;
+  real_cost += kWeight * 0.5 * xu(2) * xu(2) + kWeight * 0.5 * xu(3) * xu(3);
+  if (xu(0) > y_ub) {
+    const float delta_y_square = (xu(0) - y_ub) * (xu(0) - y_ub);
+    real_cost += kBndWeight * 0.5 * delta_y_square;
+  } else if (xu(0) < y_lb) {
+    const float delta_y_square = (xu(0) - y_lb) * (xu(0) - y_lb);
+    real_cost += kBndWeight * 0.5 * delta_y_square;
+  }
+  if (xu(1) > z_ub) {
+    const float delta_z_square = (xu(1) - z_ub) * (xu(1) - z_ub);
+    real_cost += kBndWeight * 0.5 * delta_z_square;
+  } else if (xu(1) < z_lb) {
+    const float delta_z_square = (xu(1) - z_lb) * (xu(1) - z_lb);
+    real_cost += kBndWeight * 0.5 * delta_z_square;
+  }
+  return real_cost;
+}
+
+std::pair<Eigen::Matrix4f, Eigen::Vector4f>
+GridAstar::GetTermCost(const Eigen::Vector4f &xu, const float target_y,
+                       const float target_z) {
+  std::pair<Eigen::Matrix4f, Eigen::Vector4f> cost;
+  // clang-format off
+  cost.first << 
+  kTermWeight, 0.0, 0.0, 0.0,
+  0.0, kTermWeight, 0.0, 0.0,
+  0.0, 0.0, kWeight, 0.0,
+  0.0, 0.0, 0.0, kWeight;
+  cost.second << 
+  kTermWeight * (xu(0) - target_y),
+  kTermWeight * (xu(1) - target_z),
+  kWeight * xu(2),
+  kWeight * xu(3);
+  // clang-format on
+  return cost;
+}
+
+float GridAstar::GetRealTermCost(const Eigen::Vector4f &xu,
+                                 const float target_y, const float target_z) {
+  float real_cost = 0.0;
+  real_cost += kTermWeight * 0.5 * (xu(0) - target_y) * (xu(0) - target_y) +
+               kTermWeight * 0.5 * (xu(1) - target_z) * (xu(1) - target_z);
+  real_cost += kWeight * 0.5 * xu(2) * xu(2) + kWeight * 0.5 * xu(3) * xu(3);
+  return real_cost;
 }
 
 inline float GridAstar::CalHeurScore(const std::shared_ptr<GridAstarNode> &node,

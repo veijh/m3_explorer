@@ -33,6 +33,7 @@ public:
   bool IsInBlock(const int y, const int z) const;
   std::vector<Block2D> GetOverlap(const Block2D &block) const;
   float GetRoughDistance(const Block2D &block, const int delta_x) const;
+  bool GetRangeAtY(const int y, RangeVoxel *range) const;
 };
 
 class Block2DWrapper {
