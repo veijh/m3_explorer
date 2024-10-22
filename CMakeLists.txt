@@ -30,6 +30,7 @@ find_package(Eigen3 REQUIRED)
 ## System dependencies are found with CMake's conventions
 find_package(Boost REQUIRED)
 
+find_package(yaml-cpp REQUIRED)
 
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
@@ -166,6 +167,7 @@ add_executable(map_merge src/map_merge.cpp)
 add_executable(frontier_test src/frontier_test.cpp)
 add_executable(octo_astar_test src/octo_astar_test.cpp)
 add_executable(grid_astar_test src/grid_astar_test.cpp)
+add_executable(create_map_test src/create_map_test.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -216,6 +218,13 @@ target_link_libraries(grid_astar_test
   ${catkin_LIBRARIES}
   ${PROJECT_NAME}_lib
   ${Boost_LIBRARIES}
+)
+
+target_link_libraries(create_map_test
+  ${catkin_LIBRARIES}
+  ${PROJECT_NAME}_lib
+  ${Boost_LIBRARIES}
+  ${YAML_CPP_LIBRARIES}
 )
 
 #############
