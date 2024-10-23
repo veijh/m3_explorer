@@ -849,11 +849,11 @@ float GridAstar::BlockPathRefine(const std::vector<int> &block_path,
   // clang-format on
   std::vector<Eigen::Matrix2f> K_mats(num_key_frames, Eigen::Matrix2f::Zero());
   std::vector<Eigen::Vector2f> k_vecs(num_key_frames, Eigen::Vector2f::Zero());
-  // Construct the initial guess.
-  std::cout << "Construct the initial guess..." << std::endl;
   std::vector<Eigen::Vector4f> xu_vecs(num_key_frames, Eigen::Vector4f::Zero());
   std::vector<Eigen::Vector2f> x_hat_vecs(num_key_frames,
                                           Eigen::Vector2f::Zero());
+  // Construct the initial guess.
+  std::cout << "Construct the initial guess..." << std::endl;
   xu_vecs[0] << index_start_y, index_start_z, 0.0, 0.0;
   x_hat_vecs[0] << index_start_y, index_start_z;
   for (int i = 1; i < num_key_frames; ++i) {
@@ -882,6 +882,7 @@ float GridAstar::BlockPathRefine(const std::vector<int> &block_path,
     for (int k = num_key_frames - 1; k >= 0; --k) {
       Eigen::Matrix4f Q;
       Eigen::Vector4f q;
+      // Cost can be calculated in parallel.
       if (k == num_key_frames - 1) {
         const std::pair<Eigen::Matrix4f, Eigen::Vector4f> cost =
             GetTermCost(xu_vecs[k], index_end_y, index_end_z);
@@ -923,47 +924,42 @@ float GridAstar::BlockPathRefine(const std::vector<int> &block_path,
     float alpha = 1.0;
     bool is_line_search_done = false;
     int line_search_iter = 0;
+    // TODO: Parellel line search.
+    const std::vector<Eigen::Vector4f> cur_xu_vecs(xu_vecs);
     while (!is_line_search_done && line_search_iter < kMaxLineSearchIter) {
       ++line_search_iter;
       // Forward Pass.
-      std::vector<Eigen::Vector4f> xu_vecs_copy(xu_vecs);
-      std::vector<Eigen::Vector2f> x_hat_vecs_copy(x_hat_vecs);
       float next_cost_sum = 0.0;
       for (int k = 0; k < num_key_frames - 1; ++k) {
-        const Eigen::Vector2f x = xu_vecs[k].block<2, 1>(0, 0);
-        const Eigen::Vector2f u = xu_vecs[k].block<2, 1>(2, 0);
-        xu_vecs_copy[k].block<2, 1>(2, 0) =
-            K_mats[k] * (x_hat_vecs_copy[k] - x) + alpha * k_vecs[k] + u;
-        xu_vecs_copy[k].block<2, 1>(0, 0) = x_hat_vecs_copy[k];
-        x_hat_vecs_copy[k + 1] = F * xu_vecs_copy[k];
+        const Eigen::Vector2f x = cur_xu_vecs[k].block<2, 1>(0, 0);
+        const Eigen::Vector2f u = cur_xu_vecs[k].block<2, 1>(2, 0);
+        xu_vecs[k].block<2, 1>(2, 0) =
+            K_mats[k] * (x_hat_vecs[k] - x) + alpha * k_vecs[k] + u;
+        xu_vecs[k].block<2, 1>(0, 0) = x_hat_vecs[k];
+        x_hat_vecs[k + 1] = F * xu_vecs[k];
         // Calculate the new cost.
         const int y_lb = key_frames[k].y_min_;
         const int y_ub = key_frames[k].y_max_;
         const int y_id =
-            std::clamp(static_cast<int>(xu_vecs_copy[k](0)), y_lb, y_ub);
+            std::clamp(static_cast<int>(xu_vecs[k](0)), y_lb, y_ub);
         RangeVoxel z_range;
         key_frames[k].GetRangeAtY(y_id, &z_range);
-        next_cost_sum += GetRealCost(xu_vecs_copy[k], y_lb, y_ub, z_range.min_,
-                                     z_range.max_);
+        next_cost_sum +=
+            GetRealCost(xu_vecs[k], y_lb, y_ub, z_range.min_, z_range.max_);
       }
-      xu_vecs_copy[num_key_frames - 1].block<2, 1>(0, 0) =
-          x_hat_vecs_copy[num_key_frames - 1];
-      next_cost_sum += GetRealTermCost(xu_vecs_copy[num_key_frames - 1],
-                                       index_end_y, index_end_z);
+      xu_vecs[num_key_frames - 1].block<2, 1>(0, 0) =
+          x_hat_vecs[num_key_frames - 1];
+      next_cost_sum += GetRealTermCost(xu_vecs[num_key_frames - 1], index_end_y,
+                                       index_end_z);
       // Check if J satisfy line search condition.
       const float ratio_decrease =
           (next_cost_sum - cost_sum) /
           (alpha * (delta_V.first + alpha * delta_V.second));
-      // std::cout << "iter: " << iter << ", next_cost_sum: " << next_cost_sum
-      //           << ", cost_sum: " << cost_sum
-      //           << ", ratio_decrease: " << ratio_decrease << std::endl;
       if (line_search_iter < kMaxLineSearchIter &&
           (ratio_decrease <= 1e-4 || ratio_decrease >= 10)) {
         alpha *= 0.5;
       } else {
         is_line_search_done = true;
-        xu_vecs = xu_vecs_copy;
-        x_hat_vecs = x_hat_vecs_copy;
       }
     }
 
@@ -972,6 +968,7 @@ float GridAstar::BlockPathRefine(const std::vector<int> &block_path,
     for (int k = 0; k < num_key_frames - 1; ++k) {
       path_length += std::hypot(xu_vecs[k].block<2, 1>(2, 0).norm(), 1.0);
     }
+    // Terminate condition.
     if (iter > 0 &&
         std::fabs(path_length - last_path_length) < kConvergenceThreshold) {
       break;
