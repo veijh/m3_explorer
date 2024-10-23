@@ -799,7 +799,6 @@ float GridAstar::BlockPathRefine(const std::vector<int> &block_path,
     for (int i = index_start_x; i != block_x; i += x_step) {
       key_frames.emplace_back(block3d.blocks_[i - x_min]);
       key_frame_x.emplace_back(i);
-      // std::cout << "A add key frame: " << i << std::endl;
     }
     key_frames.emplace_back(block2d.block_);
     key_frame_x.emplace_back(block_x);
@@ -819,7 +818,6 @@ float GridAstar::BlockPathRefine(const std::vector<int> &block_path,
     for (int i = last_block_x + x_step; i != block_x; i += x_step) {
       key_frames.emplace_back(block3d.blocks_[i - x_min]);
       key_frame_x.emplace_back(i);
-      // std::cout << "B add key frame: " << i << std::endl;
     }
     key_frames.emplace_back(block2d.block_);
     key_frame_x.emplace_back(block_x);
@@ -833,10 +831,9 @@ float GridAstar::BlockPathRefine(const std::vector<int> &block_path,
         block_x == index_end_x ? 0 : (block_x < index_end_x ? 1 : -1);
     const Block3D &block3d = merge_map_3d_[block_id_map[block2d.block_id_]];
     const int x_min = block3d.x_min_;
-    for (int i = block_x; i != index_end_x; i += x_step) {
+    for (int i = block_x + x_step; i != index_end_x; i += x_step) {
       key_frames.emplace_back(block3d.blocks_[i - x_min]);
       key_frame_x.emplace_back(i);
-      // std::cout << "C add key frame: " << i << std::endl;
     }
   }
   // iLQR Path Optimization.
