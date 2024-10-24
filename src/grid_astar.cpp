@@ -787,6 +787,8 @@ float GridAstar::BlockPathRefine(const std::vector<int> &block_path,
   key_frames.reserve(1000);
   std::vector<int> key_frame_x;
   key_frame_x.reserve(1000);
+  std::vector<int> key_frames_index;
+  key_frames_index.reserve(1000);
   // Segment 0
   {
     const int node_id = block_path.front();
@@ -802,6 +804,8 @@ float GridAstar::BlockPathRefine(const std::vector<int> &block_path,
     }
     key_frames.emplace_back(block2d.block_);
     key_frame_x.emplace_back(block_x);
+    key_frames_index.emplace_back(0);
+    key_frames_index.emplace_back(key_frames.size() - 1);
   }
   // Segment 1 to n-1
   for (int i = 1; i < block_path.size(); ++i) {
@@ -821,6 +825,7 @@ float GridAstar::BlockPathRefine(const std::vector<int> &block_path,
     }
     key_frames.emplace_back(block2d.block_);
     key_frame_x.emplace_back(block_x);
+    key_frames_index.emplace_back(key_frames.size() - 1);
   }
   // Segment n
   {
@@ -835,148 +840,170 @@ float GridAstar::BlockPathRefine(const std::vector<int> &block_path,
       key_frames.emplace_back(block3d.blocks_[i - x_min]);
       key_frame_x.emplace_back(i);
     }
+    key_frames_index.emplace_back(key_frames.size() - 1);
   }
   // iLQR Path Optimization.
   const int num_key_frames = key_frames.size();
+  const int num_constraints = key_frames_index.size();
   Eigen::Matrix<float, 2, 4> F;
   // clang-format off
   F <<
   1.0, 0.0, 1.0, 0.0,
   0.0, 1.0, 0.0, 1.0;
   // clang-format on
-  std::vector<Eigen::Matrix2f> K_mats(num_key_frames, Eigen::Matrix2f::Zero());
+  std::vector<Eigen::Matrix2f> K_mats;
+  K_mats.reserve(num_key_frames);
+  K_mats.resize(num_constraints, Eigen::Matrix2f::Zero());
   std::vector<Eigen::Vector2f> k_vecs(num_key_frames, Eigen::Vector2f::Zero());
+  k_vecs.reserve(num_key_frames);
+  k_vecs.resize(num_constraints, Eigen::Vector2f::Zero());
   std::vector<Eigen::Vector4f> xu_vecs(num_key_frames, Eigen::Vector4f::Zero());
+  xu_vecs.reserve(num_key_frames);
+  xu_vecs.resize(num_constraints, Eigen::Vector4f::Zero());
   std::vector<Eigen::Vector2f> x_hat_vecs(num_key_frames,
                                           Eigen::Vector2f::Zero());
+  x_hat_vecs.reserve(num_key_frames);
+  x_hat_vecs.resize(num_constraints, Eigen::Vector2f::Zero());
   // Construct the initial guess.
   std::cout << "Construct the initial guess..." << std::endl;
   xu_vecs[0] << index_start_y, index_start_z, 0.0, 0.0;
   x_hat_vecs[0] << index_start_y, index_start_z;
-  for (int i = 1; i < num_key_frames; ++i) {
-    const int y_lb = key_frames[i].y_min_;
-    const int y_ub = key_frames[i].y_max_;
+  for (int i = 1; i < num_constraints; ++i) {
+    const int index = key_frames_index[i];
+    const int y_lb = key_frames[index].y_min_;
+    const int y_ub = key_frames[index].y_max_;
     const int y_initial = (y_lb + y_ub) / 2;
     RangeVoxel z_range;
-    key_frames[i].GetRangeAtY(y_initial, &z_range);
+    key_frames[index].GetRangeAtY(y_initial, &z_range);
     const int z_initial = (z_range.min_ + z_range.max_) / 2;
     xu_vecs[i].block<2, 1>(0, 0) << y_initial, z_initial;
     xu_vecs[i - 1].block<2, 1>(2, 0) =
         xu_vecs[i].block<2, 1>(0, 0) - xu_vecs[i - 1].block<2, 1>(0, 0);
   }
   std::cout << "start ilqr optimization..." << std::endl;
-  // Iteration Loop.
+  bool is_ilqr_success = false;
   float cost_sum = 0.0;
   float last_cost_sum = cost_sum;
   float path_length = 0.0;
   float last_path_length = path_length;
-  for (int iter = 0; iter < kMaxIteration; ++iter) {
-    Eigen::Matrix2f V;
-    Eigen::Vector2f v;
-    cost_sum = 0.0;
-    std::pair<float, float> delta_V(0.0, 0.0);
-    // Backward Pass.
-    for (int k = num_key_frames - 1; k >= 0; --k) {
-      Eigen::Matrix4f Q;
-      Eigen::Vector4f q;
-      // Cost can be calculated in parallel.
-      if (k == num_key_frames - 1) {
-        const std::pair<Eigen::Matrix4f, Eigen::Vector4f> cost =
-            GetTermCost(xu_vecs[k], index_end_y, index_end_z);
-        cost_sum += GetRealTermCost(xu_vecs[k], index_end_y, index_end_z);
-        Q = cost.first;
-        q = cost.second;
-      } else {
-        const int y_lb = key_frames[k].y_min_;
-        const int y_ub = key_frames[k].y_max_;
-        const int y_id =
-            std::clamp(static_cast<int>(xu_vecs[k](0)), y_lb, y_ub);
-        RangeVoxel z_range;
-        key_frames[k].GetRangeAtY(y_id, &z_range);
-        const std::pair<Eigen::Matrix4f, Eigen::Vector4f> cost =
-            GetCost(xu_vecs[k], y_lb, y_ub, z_range.min_, z_range.max_);
-        cost_sum +=
-            GetRealCost(xu_vecs[k], y_lb, y_ub, z_range.min_, z_range.max_);
-        Q = cost.first + F.transpose() * V * F;
-        q = cost.second + F.transpose() * v;
+  while (!is_ilqr_success) {
+    // Iteration Loop.
+    for (int iter = 0; iter < kMaxIteration; ++iter) {
+      Eigen::Matrix2f V;
+      Eigen::Vector2f v;
+      cost_sum = 0.0;
+      std::pair<float, float> delta_V(0.0, 0.0);
+      // Backward Pass.
+      for (int k = num_constraints - 1; k >= 0; --k) {
+        Eigen::Matrix4f Q;
+        Eigen::Vector4f q;
+        // Cost can be calculated in parallel.
+        if (k == num_constraints - 1) {
+          const std::pair<Eigen::Matrix4f, Eigen::Vector4f> cost =
+              GetTermCost(xu_vecs[k], index_end_y, index_end_z);
+          cost_sum += GetRealTermCost(xu_vecs[k], index_end_y, index_end_z);
+          Q = cost.first;
+          q = cost.second;
+        } else {
+          const int real_index = key_frames_index[k];
+          const int y_lb = key_frames[real_index].y_min_;
+          const int y_ub = key_frames[real_index].y_max_;
+          const int y_id =
+              std::clamp(static_cast<int>(xu_vecs[k](0)), y_lb, y_ub);
+          RangeVoxel z_range;
+          key_frames[real_index].GetRangeAtY(y_id, &z_range);
+          const std::pair<Eigen::Matrix4f, Eigen::Vector4f> cost =
+              GetCost(xu_vecs[k], y_lb, y_ub, z_range.min_, z_range.max_);
+          cost_sum +=
+              GetRealCost(xu_vecs[k], y_lb, y_ub, z_range.min_, z_range.max_);
+          Q = cost.first + F.transpose() * V * F;
+          q = cost.second + F.transpose() * v;
+        }
+        const Eigen::Matrix2f Qxx = Q.block<2, 2>(0, 0);
+        const Eigen::Matrix2f Qxu = Q.block<2, 2>(0, 2);
+        const Eigen::Matrix2f Qux = Q.block<2, 2>(2, 0);
+        const Eigen::Matrix2f Quu = Q.block<2, 2>(2, 2);
+        const Eigen::Vector2f qx = q.block<2, 1>(0, 0);
+        const Eigen::Vector2f qu = q.block<2, 1>(2, 0);
+        const Eigen::Matrix2f K_mat = K_mats[k];
+        const Eigen::Vector2f k_vec = k_vecs[k];
+        K_mats[k] = -Quu.inverse() * Qux;
+        k_vecs[k] = -Quu.inverse() * qu;
+        V = Qxx + Qxu * K_mat + K_mat.transpose() * Qux +
+            K_mat.transpose() * Quu * K_mat;
+        v = qx + Qxu * k_vec + K_mat.transpose() * qu +
+            K_mat.transpose() * Quu * k_vec;
+        delta_V.first += k_vecs[k].transpose() * qu;
+        delta_V.second += 0.5 * k_vecs[k].transpose() * Quu * k_vecs[k];
       }
-      const Eigen::Matrix2f Qxx = Q.block<2, 2>(0, 0);
-      const Eigen::Matrix2f Qxu = Q.block<2, 2>(0, 2);
-      const Eigen::Matrix2f Qux = Q.block<2, 2>(2, 0);
-      const Eigen::Matrix2f Quu = Q.block<2, 2>(2, 2);
-      const Eigen::Vector2f qx = q.block<2, 1>(0, 0);
-      const Eigen::Vector2f qu = q.block<2, 1>(2, 0);
-      const Eigen::Matrix2f K_mat = K_mats[k];
-      const Eigen::Vector2f k_vec = k_vecs[k];
-      K_mats[k] = -Quu.inverse() * Qux;
-      k_vecs[k] = -Quu.inverse() * qu;
-      V = Qxx + Qxu * K_mat + K_mat.transpose() * Qux +
-          K_mat.transpose() * Quu * K_mat;
-      v = qx + Qxu * k_vec + K_mat.transpose() * qu +
-          K_mat.transpose() * Quu * k_vec;
-      delta_V.first += k_vecs[k].transpose() * qu;
-      delta_V.second += 0.5 * k_vecs[k].transpose() * Quu * k_vecs[k];
-    }
 
-    float alpha = 1.0;
-    bool is_line_search_done = false;
-    int line_search_iter = 0;
-    // TODO: Parellel line search.
-    const std::vector<Eigen::Vector4f> cur_xu_vecs(xu_vecs);
-    while (!is_line_search_done && line_search_iter < kMaxLineSearchIter) {
-      ++line_search_iter;
-      // Forward Pass.
-      float next_cost_sum = 0.0;
-      for (int k = 0; k < num_key_frames - 1; ++k) {
-        const Eigen::Vector2f x = cur_xu_vecs[k].block<2, 1>(0, 0);
-        const Eigen::Vector2f u = cur_xu_vecs[k].block<2, 1>(2, 0);
-        xu_vecs[k].block<2, 1>(2, 0) =
-            K_mats[k] * (x_hat_vecs[k] - x) + alpha * k_vecs[k] + u;
-        xu_vecs[k].block<2, 1>(0, 0) = x_hat_vecs[k];
-        x_hat_vecs[k + 1] = F * xu_vecs[k];
-        // Calculate the new cost.
-        const int y_lb = key_frames[k].y_min_;
-        const int y_ub = key_frames[k].y_max_;
-        const int y_id =
-            std::clamp(static_cast<int>(xu_vecs[k](0)), y_lb, y_ub);
-        RangeVoxel z_range;
-        key_frames[k].GetRangeAtY(y_id, &z_range);
-        next_cost_sum +=
-            GetRealCost(xu_vecs[k], y_lb, y_ub, z_range.min_, z_range.max_);
+      float alpha = 1.0;
+      bool is_line_search_done = false;
+      int line_search_iter = 0;
+      // TODO: Parellel line search.
+      const std::vector<Eigen::Vector4f> cur_xu_vecs(xu_vecs);
+      while (!is_line_search_done && line_search_iter < kMaxLineSearchIter) {
+        ++line_search_iter;
+        // Forward Pass.
+        float next_cost_sum = 0.0;
+        for (int k = 0; k < num_constraints - 1; ++k) {
+          const Eigen::Vector2f x = cur_xu_vecs[k].block<2, 1>(0, 0);
+          const Eigen::Vector2f u = cur_xu_vecs[k].block<2, 1>(2, 0);
+          xu_vecs[k].block<2, 1>(2, 0) =
+              K_mats[k] * (x_hat_vecs[k] - x) + alpha * k_vecs[k] + u;
+          xu_vecs[k].block<2, 1>(0, 0) = x_hat_vecs[k];
+          x_hat_vecs[k + 1] = F * xu_vecs[k];
+          // Calculate the new cost.
+          const int real_index = key_frames_index[k];
+          const int y_lb = key_frames[real_index].y_min_;
+          const int y_ub = key_frames[real_index].y_max_;
+          const int y_id =
+              std::clamp(static_cast<int>(xu_vecs[k](0)), y_lb, y_ub);
+          RangeVoxel z_range;
+          key_frames[real_index].GetRangeAtY(y_id, &z_range);
+          next_cost_sum +=
+              GetRealCost(xu_vecs[k], y_lb, y_ub, z_range.min_, z_range.max_);
+        }
+        xu_vecs[num_constraints - 1].block<2, 1>(0, 0) =
+            x_hat_vecs[num_constraints - 1];
+        next_cost_sum += GetRealTermCost(xu_vecs[num_constraints - 1],
+                                         index_end_y, index_end_z);
+        // Check if J satisfy line search condition.
+        const float ratio_decrease =
+            (next_cost_sum - cost_sum) /
+            (alpha * (delta_V.first + alpha * delta_V.second));
+        if (line_search_iter < kMaxLineSearchIter &&
+            (ratio_decrease <= 1e-4 || ratio_decrease >= 10)) {
+          alpha *= 0.5;
+        } else {
+          is_line_search_done = true;
+        }
       }
-      xu_vecs[num_key_frames - 1].block<2, 1>(0, 0) =
-          x_hat_vecs[num_key_frames - 1];
-      next_cost_sum += GetRealTermCost(xu_vecs[num_key_frames - 1], index_end_y,
-                                       index_end_z);
-      // Check if J satisfy line search condition.
-      const float ratio_decrease =
-          (next_cost_sum - cost_sum) /
-          (alpha * (delta_V.first + alpha * delta_V.second));
-      if (line_search_iter < kMaxLineSearchIter &&
-          (ratio_decrease <= 1e-4 || ratio_decrease >= 10)) {
-        alpha *= 0.5;
-      } else {
-        is_line_search_done = true;
-      }
-    }
 
-    // Calculate the path length.
-    path_length = 0.0;
-    for (int k = 0; k < num_key_frames - 1; ++k) {
-      path_length += std::hypot(xu_vecs[k].block<2, 1>(2, 0).norm(), 1.0);
+      // Calculate the path length.
+      path_length = 0.0;
+      for (int k = 0; k < num_constraints - 1; ++k) {
+        const float delta_x = key_frame_x[key_frames_index[k + 1]] -
+                              key_frame_x[key_frames_index[k]];
+        path_length += std::hypot(xu_vecs[k].block<2, 1>(2, 0).norm(), delta_x);
+      }
+      // Terminate condition.
+      if (iter > 0 &&
+          std::fabs(path_length - last_path_length) < kConvergenceThreshold) {
+        break;
+      } else {
+        last_path_length = path_length;
+      }
     }
-    // Terminate condition.
-    if (iter > 0 &&
-        std::fabs(path_length - last_path_length) < kConvergenceThreshold) {
-      break;
-    } else {
-      last_path_length = path_length;
-    }
+    // Check if the path is feasible.
+    is_ilqr_success = true;
+    // Add extra constraints.
   }
+
   ilqr_path_.clear();
-  ilqr_path_.reserve(num_key_frames);
-  for (int i = 0; i < num_key_frames; ++i) {
-    float x = key_frame_x[i];
+  ilqr_path_.reserve(num_constraints);
+  for (int i = 0; i < num_constraints; ++i) {
+    float x = key_frame_x[key_frames_index[i]];
     float y = xu_vecs[i](0);
     float z = xu_vecs[i](1);
     ilqr_path_.emplace_back();
